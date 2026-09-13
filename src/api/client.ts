@@ -6,7 +6,6 @@ import type {
 	OverviewRead,
 	SlotRead,
 	SlotUpdate,
-	TokenScopesResponse,
 	UnitRead,
 	Uuid,
 } from "./types";
@@ -21,7 +20,16 @@ import type {
 export class GgdApiClient {
 	constructor(private readonly http: HttpClient) {}
 
-	/** Eigene Unterrichtsgruppen — Grundlage der Gruppen-Zuordnung in den Einstellungen. */
+	/**
+	 * Eigene Unterrichtsgruppen.
+	 *
+	 * ⚠️ **Mit einem PAT heute nicht erreichbar.** Das Gatter in `app/auth/scopes.py` ist
+	 * Deny-by-default und kennt nur `/planning`, `/context/nodes`, `/context/edges` und
+	 * `/context/search`; `/groups/me` fällt durch und liefert 403. Für die Auswahl der
+	 * Gruppen in den Einstellungen bräuchte es dort eine Zeile
+	 * `"/groups/me": ("planning:read", "planning:write")`. Bis dahin wird die `group_id`
+	 * von Hand eingetragen.
+	 */
 	async myGroups(): Promise<MyGroupsResponse> {
 		const { json } = await this.http.send<MyGroupsResponse>({
 			method: "GET",
@@ -30,13 +38,14 @@ export class GgdApiClient {
 		return json;
 	}
 
-	/** Scope-Liste — dient zugleich als billigster Token-Test. */
-	async tokenScopes(): Promise<TokenScopesResponse> {
-		const { json } = await this.http.send<TokenScopesResponse>({
-			method: "GET",
-			path: "/tokens/scopes",
-		});
-		return json;
+	/**
+	 * Verbindungstest. Geht bewusst über `/planning`, weil das der einzige Bereich ist,
+	 * den ein Token mit `planning:read` überhaupt erreicht — ein Test gegen `/tokens`
+	 * oder `/groups` prüfte nur das Gatter, nicht die Verbindung.
+	 */
+	async verbindungstest(groupId: number): Promise<{ schuljahr: string; slots: number }> {
+		const overview = await this.overview(groupId);
+		return { schuljahr: overview.schuljahr, slots: overview.slots.length };
 	}
 
 	async overview(groupId: number, halbjahr?: number): Promise<OverviewRead> {

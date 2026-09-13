@@ -46,16 +46,23 @@ export class UpsSettingTab extends PluginSettingTab {
 			})
 			.addButton((button) =>
 				button.setButtonText("Verbindung testen").onClick(async () => {
+					const gruppe = this.plugin.settings.zuordnungen.find((z) => z.groupId > 0);
+					if (!gruppe) {
+						new Notice(
+							"Erst eine Gruppen-Zuordnung mit group_id anlegen — der Test geht über /planning und braucht eine Gruppe.",
+							8000,
+						);
+						return;
+					}
 					button.setDisabled(true);
 					try {
-						const scopes = await this.plugin.api.tokenScopes();
-						const gruppen = await this.plugin.api.myGroups();
+						const ergebnis = await this.plugin.api.verbindungstest(gruppe.groupId);
 						new Notice(
-							`Verbindung steht. Scopes verfügbar: ${Object.keys(scopes).length}, eigene Gruppen: ${gruppen.groups?.length ?? 0}`,
+							`Verbindung steht. Gruppe ${gruppe.groupId}, Schuljahr ${ergebnis.schuljahr}, ${ergebnis.slots} Slots.`,
 							8000,
 						);
 					} catch (error) {
-						new Notice(`Fehlgeschlagen: ${(error as Error).message}`, 10000);
+						new Notice(deuteFehler(error as Error), 12000);
 					} finally {
 						button.setDisabled(false);
 					}
@@ -160,4 +167,22 @@ export class UpsSettingTab extends PluginSettingTab {
 				}),
 		);
 	}
+}
+
+/**
+ * Die drei Fehler, die beim Einrichten tatsächlich vorkommen — mit dem Hinweis, der
+ * weiterhilft, statt nur der Statuszeile.
+ */
+function deuteFehler(error: Error): string {
+	const text = error.message;
+	if (text.includes("401")) {
+		return `Token abgelehnt (401). Abgelaufen, widerrufen oder vertippt? ${text}`;
+	}
+	if (text.includes("403")) {
+		return `Zugang gesperrt (403). Dem Token fehlt der Scope planning:read — im Profil neu erzeugen. ${text}`;
+	}
+	if (text.includes("404")) {
+		return `Nicht gefunden (404). Stimmt die Basis-URL samt /api, und unterrichtest du diese Gruppe? ${text}`;
+	}
+	return `Fehlgeschlagen: ${text}`;
 }

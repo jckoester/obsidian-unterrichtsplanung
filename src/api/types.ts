@@ -119,7 +119,3 @@ export interface LessonUpdate {
 	stundenziel?: string;
 	expected_updated_at?: IsoDateTime;
 }
-
-export interface TokenScopesResponse {
-	[scope: string]: string;
-}
