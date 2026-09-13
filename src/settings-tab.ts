@@ -11,6 +11,10 @@ export class UpsSettingTab extends PluginSettingTab {
 		super(app, plugin);
 	}
 
+	private ordnerExistiert(pfad: string): boolean {
+		return this.app.vault.getAbstractFileByPath(normalizePath(pfad)) instanceof TFolder;
+	}
+
 	override display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
@@ -125,25 +129,34 @@ export class UpsSettingTab extends PluginSettingTab {
 					}),
 				);
 
-			new Setting(block)
+			const ordnerSetting = new Setting(block)
 				.setName("Ordner des Lehrauftrags")
 				.setDesc(
 					'Der Ordner dieses einen Lehrauftrags, z. B. "Bereiche/11 Unterricht/NwT 9" — nicht der Sammelordner darüber.',
-				)
-				.addText((text) =>
-					text
-						.setPlaceholder("Bereiche/11 Unterricht/NwT 9")
-						.setValue(zuordnung.ordner)
-						.onChange(async (value) => {
-							zuordnung.ordner = value.replace(/\/+$/, "");
-							await this.plugin.saveSettings();
-							// Sofort melden, statt beim Sync irgendwo zu landen.
-							const ziel = zuordnung.ordner.trim();
-							if (ziel && !(this.app.vault.getAbstractFileByPath(normalizePath(ziel)) instanceof TFolder)) {
-								new Notice(`Diesen Ordner gibt es im Vault nicht: ${ziel}`, 6000);
-							}
-						}),
 				);
+			const ordnerHinweis = ordnerSetting.descEl.createDiv({ cls: "ups-hinweis" });
+			ordnerSetting.addText((text) => {
+				const pruefe = () => {
+					const ziel = zuordnung.ordner.trim();
+					const fehlt = ziel !== "" && !this.ordnerExistiert(ziel);
+					ordnerHinweis.setText(fehlt ? `Diesen Ordner gibt es im Vault nicht: ${ziel}` : "");
+					ordnerHinweis.toggleClass("ups-status-warn", fehlt);
+					text.inputEl.toggleClass("ups-feld-warnung", fehlt);
+				};
+
+				text.setPlaceholder("Bereiche/11 Unterricht/NwT 9")
+					.setValue(zuordnung.ordner)
+					.onChange(async (value) => {
+						zuordnung.ordner = value.replace(/\/+$/, "");
+						await this.plugin.saveSettings();
+					});
+
+				// Erst beim Verlassen des Feldes prüfen. Bei jedem Tastendruck zu melden,
+				// dass es „Bereiche/11 Unterricht/N" nicht gibt, ist zwar wahr, aber
+				// während des Tippens ist jeder Zwischenstand unvollständig.
+				text.inputEl.addEventListener("blur", pruefe);
+				pruefe();
+			});
 
 			new Setting(block).setName("Stunden-Unterordner").addText((text) =>
 				text.setValue(zuordnung.stundenOrdner).onChange(async (value) => {

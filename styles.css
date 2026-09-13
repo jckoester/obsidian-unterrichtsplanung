@@ -3,3 +3,10 @@
 .ups-status-error { color: var(--text-error); }
 
 .ups-dryrun-op { font-family: var(--font-monospace); font-size: var(--font-ui-smaller); }
+
+.ups-hinweis:empty { display: none; }
+.ups-hinweis {
+	margin-top: var(--size-2-1);
+	font-size: var(--font-ui-smaller);
+}
+.ups-feld-warnung { border-color: var(--text-warning); }
