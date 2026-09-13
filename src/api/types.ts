@@ -19,16 +19,21 @@ export type SlotKategorie =
 	| "puffer"
 	| "vertretung";
 
+/** `GroupOut` der Plattform (`backend/app/api/groups.py`). */
 export interface MyGroup {
 	id: number;
-	name?: string;
-	fach?: string;
-	klasse?: string;
-	[key: string]: unknown;
+	name: string;
+	slug: string;
+	type: string;
+	subject_id: number | null;
+	sso_group_id: string | null;
+	source_class_group_id: number | null;
+	created_at: IsoDateTime;
 }
 
+/** Achtung: `items`, nicht `groups` — so heißt das Feld in `MyGroupsResponse`. */
 export interface MyGroupsResponse {
-	groups: MyGroup[];
+	items: MyGroup[];
 }
 
 export interface SlotRead {

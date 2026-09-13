@@ -80,6 +80,19 @@ nennt; beide Felder stehen in der Notiz.
 - Bei beidseitiger Änderung gewinnt die Plattform; die Vault-Fassung landet als Block in
   derselben Notiz.
 
+## Änderung an der Plattform
+
+Damit die Gruppenauswahl in den Einstellungen funktioniert, hat das Gatter
+(`backend/app/auth/scopes.py`) eine Zeile bekommen:
+
+```python
+"/groups/me": ("planning:read", "planning:write"),
+```
+
+Das Gatter ist Deny-by-default; ohne diese Zeile beantwortet die Plattform `/groups/me`
+für Token mit 403, und die `group_id` müsste jedes Schuljahr von Hand eingetragen werden.
+`/groups` als Ganzes bleibt zu — dort hängen alle Gruppen der Schule.
+
 ## Stand gegen die Plattform (13.09.2026)
 
 Stufe 0 des Backend-Plans ist **fertig** — anders als der Plan vom 12.09. annimmt:

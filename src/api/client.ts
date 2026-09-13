@@ -2,6 +2,7 @@ import type { HttpClient } from "./http";
 import type {
 	LessonRead,
 	LessonUpdate,
+	MyGroup,
 	MyGroupsResponse,
 	OverviewRead,
 	SlotRead,
@@ -21,29 +22,23 @@ export class GgdApiClient {
 	constructor(private readonly http: HttpClient) {}
 
 	/**
-	 * Eigene Unterrichtsgruppen.
+	 * Eigene Gruppen — Grundlage der Zuordnung in den Einstellungen und zugleich der
+	 * Verbindungstest, weil der Aufruf ohne `group_id` auskommt.
 	 *
-	 * ⚠️ **Mit einem PAT heute nicht erreichbar.** Das Gatter in `app/auth/scopes.py` ist
-	 * Deny-by-default und kennt nur `/planning`, `/context/nodes`, `/context/edges` und
-	 * `/context/search`; `/groups/me` fällt durch und liefert 403. Für die Auswahl der
-	 * Gruppen in den Einstellungen bräuchte es dort eine Zeile
-	 * `"/groups/me": ("planning:read", "planning:write")`. Bis dahin wird die `group_id`
-	 * von Hand eingetragen.
+	 * Erreichbar seit dem Eintrag `"/groups/me": ("planning:read", "planning:write")` im
+	 * Gatter (`app/auth/scopes.py`). Ein 403 hier heißt deshalb entweder: der Plattform
+	 * fehlt dieser Eintrag noch, oder dem Token fehlt `planning:read`.
 	 */
-	async myGroups(): Promise<MyGroupsResponse> {
+	async myGroups(): Promise<MyGroup[]> {
 		const { json } = await this.http.send<MyGroupsResponse>({
 			method: "GET",
 			path: "/groups/me",
 		});
-		return json;
+		return json.items ?? [];
 	}
 
-	/**
-	 * Verbindungstest. Geht bewusst über `/planning`, weil das der einzige Bereich ist,
-	 * den ein Token mit `planning:read` überhaupt erreicht — ein Test gegen `/tokens`
-	 * oder `/groups` prüfte nur das Gatter, nicht die Verbindung.
-	 */
-	async verbindungstest(groupId: number): Promise<{ schuljahr: string; slots: number }> {
+	/** Probe auf eine konkrete Gruppe — prüft zusätzlich, ob die Planung dort steht. */
+	async gruppenprobe(groupId: number): Promise<{ schuljahr: string; slots: number }> {
 		const overview = await this.overview(groupId);
 		return { schuljahr: overview.schuljahr, slots: overview.slots.length };
 	}

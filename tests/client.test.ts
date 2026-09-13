@@ -1,22 +1,32 @@
 import { describe, expect, it } from "vitest";
 import overview from "../fixtures/overview-group1.json";
+import gruppen from "../fixtures/groups-me.json";
 import { GgdApiClient } from "../src/api/client";
 import { FixtureHttpClient, HttpError } from "../src/api/http";
 
 describe("GgdApiClient", () => {
-	it("testet die Verbindung über /planning", async () => {
+	it("liest die eigenen Gruppen aus `items`, nicht aus `groups`", async () => {
+		const http = new FixtureHttpClient({ "GET /groups/me": gruppen });
+		const liste = await new GgdApiClient(http).myGroups();
+		expect(liste.map((g) => g.id)).toEqual([1]);
+		expect(liste[0]?.name).toBe("NwT 9");
+	});
+
+	it("verträgt eine Antwort ohne items", async () => {
+		const http = new FixtureHttpClient({ "GET /groups/me": {} });
+		await expect(new GgdApiClient(http).myGroups()).resolves.toEqual([]);
+	});
+
+	it("probt eine Gruppe über /planning", async () => {
 		const http = new FixtureHttpClient({ "GET /planning/groups/1/overview": overview });
-		const ergebnis = await new GgdApiClient(http).verbindungstest(1);
-		expect(ergebnis).toEqual({ schuljahr: "2026/27", slots: 2 });
-		// Kein Aufruf außerhalb von /planning — alles andere sperrt das Scope-Gatter.
-		expect(http.calls.every((c) => c.path.startsWith("/planning"))).toBe(true);
+		await expect(new GgdApiClient(http).gruppenprobe(1)).resolves.toEqual({
+			schuljahr: "2026/27",
+			slots: 2,
+		});
 	});
 
 	it("reicht den 403 des Scope-Gatters durch", async () => {
-		const http = new FixtureHttpClient(
-			{ "GET /planning/groups/1/overview": {} },
-			{ "GET /planning/groups/1/overview": 403 },
-		);
-		await expect(new GgdApiClient(http).verbindungstest(1)).rejects.toBeInstanceOf(HttpError);
+		const http = new FixtureHttpClient({ "GET /groups/me": {} }, { "GET /groups/me": 403 });
+		await expect(new GgdApiClient(http).myGroups()).rejects.toBeInstanceOf(HttpError);
 	});
 });

@@ -46,21 +46,26 @@ export class UpsSettingTab extends PluginSettingTab {
 			})
 			.addButton((button) =>
 				button.setButtonText("Verbindung testen").onClick(async () => {
-					const gruppe = this.plugin.settings.zuordnungen.find((z) => z.groupId > 0);
-					if (!gruppe) {
-						new Notice(
-							"Erst eine Gruppen-Zuordnung mit group_id anlegen — der Test geht über /planning und braucht eine Gruppe.",
-							8000,
-						);
-						return;
-					}
 					button.setDisabled(true);
 					try {
-						const ergebnis = await this.plugin.api.verbindungstest(gruppe.groupId);
-						new Notice(
-							`Verbindung steht. Gruppe ${gruppe.groupId}, Schuljahr ${ergebnis.schuljahr}, ${ergebnis.slots} Slots.`,
-							8000,
-						);
+						// Ohne group_id: `/groups/me` ist der einzige offene Pfad, der
+						// keine Gruppe voraussetzt — und liefert gleich die Auswahl mit.
+						const gruppen = await this.plugin.api.myGroups();
+						const liste = gruppen.length
+							? gruppen.map((g) => `${g.id} = ${g.name}`).join(", ")
+							: "keine";
+						const zeilen = [`Verbindung steht. Eigene Gruppen: ${liste}`];
+
+						const zugeordnet = this.plugin.settings.zuordnungen.filter((z) => z.groupId > 0);
+						for (const z of zugeordnet) {
+							try {
+								const probe = await this.plugin.api.gruppenprobe(z.groupId);
+								zeilen.push(`Gruppe ${z.groupId}: ${probe.schuljahr}, ${probe.slots} Slots`);
+							} catch (error) {
+								zeilen.push(`Gruppe ${z.groupId}: ${deuteFehler(error as Error)}`);
+							}
+						}
+						new Notice(zeilen.join("\n"), 12000);
 					} catch (error) {
 						new Notice(deuteFehler(error as Error), 12000);
 					} finally {
@@ -179,7 +184,11 @@ function deuteFehler(error: Error): string {
 		return `Token abgelehnt (401). Abgelaufen, widerrufen oder vertippt? ${text}`;
 	}
 	if (text.includes("403")) {
-		return `Zugang gesperrt (403). Dem Token fehlt der Scope planning:read — im Profil neu erzeugen. ${text}`;
+		return (
+			"Zugang gesperrt (403). Entweder fehlt dem Token der Scope planning:read, " +
+			"oder das Gatter der Plattform (app/auth/scopes.py) kennt diesen Pfad nicht. " +
+			text
+		);
 	}
 	if (text.includes("404")) {
 		return `Nicht gefunden (404). Stimmt die Basis-URL samt /api, und unterrichtest du diese Gruppe? ${text}`;
