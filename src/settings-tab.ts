@@ -11,7 +11,7 @@ export class UpsSettingTab extends PluginSettingTab {
 		super(app, plugin);
 	}
 
-	display(): void {
+	override display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
 

@@ -243,8 +243,11 @@ export function baueStundennotiz(
 		`Status:\`INPUT[inlineSelect(title(Status), option(⚫️ Platzhalter), option(🟡 Idee), option(🟢 vorbereitet), option(✅ gehalten), option(🔵 Puffer), option(🟣 Prüfung), option(🔴 Entfall),defaultValue(⚫️ Platzhalter)):UStatus]\``,
 		"",
 		"## Ziele",
-		slot.note?.trim() ? slot.note.trim() : "-",
+		// Das Stundenziel hängt am Stundenknoten (`LessonRead.stundenziel`), nicht am
+		// Slot. Stufe 1 lädt Stunden nicht einzeln nach — bis dahin bleibt es leer.
+		"-",
 		"",
+		...(slot.note?.trim() ? ["## Hinweise", slot.note.trim(), ""] : []),
 		"## Verlauf",
 		slot.hat_phasen
 			? "_Entwurf liegt auf der Plattform — Phasen-Roundtrip ist Stufe 3._"

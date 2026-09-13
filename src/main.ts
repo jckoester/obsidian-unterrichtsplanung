@@ -8,7 +8,8 @@ import { ObsidianVaultAdapter } from "./sync/obsidian-vault";
 import { syncGruppe } from "./sync/runner";
 
 export default class UnterrichtsplanungSyncPlugin extends Plugin {
-	settings!: UpsSettings;
+	// `Plugin` deklariert selbst ein optionales `settings?: unknown`; hier wird es verengt.
+	declare settings: UpsSettings;
 	api!: GgdApiClient;
 	private vault!: ObsidianVaultAdapter;
 	private statusLeiste?: HTMLElement;
