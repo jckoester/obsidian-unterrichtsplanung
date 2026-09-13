@@ -1,7 +1,7 @@
 import { Notice, Plugin, requestUrl } from "obsidian";
 import { GgdApiClient } from "./api/client";
 import { RequestUrlHttpClient } from "./api/http";
-import { DryRunModal } from "./dryrun-modal";
+import { SyncErgebnisModal } from "./dryrun-modal";
 import { STANDARD_EINSTELLUNGEN, type UpsSettings } from "./settings";
 import { UpsSettingTab } from "./settings-tab";
 import { ObsidianVaultAdapter } from "./sync/obsidian-vault";
@@ -86,14 +86,23 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 		for (const zuordnung of this.settings.zuordnungen) {
 			try {
 				const ergebnis = await syncGruppe(this.api, this.vault, zuordnung, dryRun);
-				if (dryRun) {
-					new DryRunModal(this.app, ergebnis.plan).open();
-				} else {
-					new Notice(`Gruppe ${zuordnung.groupId}: ${ergebnis.zusammenfassung}`, 6000);
-				}
+				console.info(`[UPS] Gruppe ${zuordnung.groupId}:`, ergebnis.plan.ops);
+
+				// Auch der scharfe Lauf zeigt sein Ergebnis: Eine Notice, die „12×
+				// erstellen" sagt, während zwölf Schreibversuche gescheitert sind, wäre
+				// die schlechteste aller Rückmeldungen.
 				if (ergebnis.fehler.length > 0) {
 					fehlerhaft++;
 					console.error("[UPS] Fehler beim Ausführen:", ergebnis.fehler);
+				}
+				const stillerLauf =
+					!dryRun &&
+					ergebnis.fehler.length === 0 &&
+					ergebnis.plan.ops.every((op) => op.art === "unveraendert");
+				if (dryRun || ergebnis.fehler.length > 0 || stillerLauf) {
+					new SyncErgebnisModal(this.app, ergebnis).open();
+				} else {
+					new Notice(`Gruppe ${zuordnung.groupId}: ${ergebnis.zusammenfassung}`, 6000);
 				}
 			} catch (error) {
 				fehlerhaft++;
