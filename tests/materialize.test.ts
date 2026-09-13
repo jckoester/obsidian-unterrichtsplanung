@@ -5,6 +5,7 @@ import { MARKER_UEBERSCHRIFT } from "../src/sync/frontmatter";
 import {
 	materialize,
 	STANDARD_DATEIMUSTER,
+	ZuordnungFehler,
 	type GruppenZuordnung,
 } from "../src/sync/materialize";
 
@@ -112,5 +113,25 @@ describe("materialize", () => {
 		const plan = materialize({ zuordnung, overview: getauscht, vorhanden });
 		expect(plan.ops.filter((o) => o.art === "umbenennen").length).toBeGreaterThan(0);
 		expect(plan.ops.some((o) => o.art === "erstellen")).toBe(false);
+	});
+});
+
+describe("pruefeZuordnung", () => {
+	it("weigert sich bei leerem Ordner, statt irgendwohin zu schreiben", () => {
+		expect(() =>
+			materialize({
+				zuordnung: { ...zuordnung, ordner: "" },
+				overview: stand,
+				vorhanden: [],
+			}),
+		).toThrow(ZuordnungFehler);
+	});
+
+	it("weigert sich ohne group_id und ohne Lehrauftrag-Link", () => {
+		for (const kaputt of [{ groupId: 0 }, { lehrauftragLink: "" }]) {
+			expect(() =>
+				materialize({ zuordnung: { ...zuordnung, ...kaputt }, overview: stand, vorhanden: [] }),
+			).toThrow(ZuordnungFehler);
+		}
 	});
 });

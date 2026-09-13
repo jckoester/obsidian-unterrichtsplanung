@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, TFolder, normalizePath } from "obsidian";
 import type UnterrichtsplanungSyncPlugin from "./main";
 import { leereZuordnung } from "./settings";
 import { STANDARD_DATEIMUSTER } from "./sync/materialize";
@@ -125,12 +125,25 @@ export class UpsSettingTab extends PluginSettingTab {
 					}),
 				);
 
-			new Setting(block).setName("Ordner").addText((text) =>
-				text.setValue(zuordnung.ordner).onChange(async (value) => {
-					zuordnung.ordner = value.replace(/\/+$/, "");
-					await this.plugin.saveSettings();
-				}),
-			);
+			new Setting(block)
+				.setName("Ordner des Lehrauftrags")
+				.setDesc(
+					'Der Ordner dieses einen Lehrauftrags, z. B. "Bereiche/11 Unterricht/NwT 9" — nicht der Sammelordner darüber.',
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder("Bereiche/11 Unterricht/NwT 9")
+						.setValue(zuordnung.ordner)
+						.onChange(async (value) => {
+							zuordnung.ordner = value.replace(/\/+$/, "");
+							await this.plugin.saveSettings();
+							// Sofort melden, statt beim Sync irgendwo zu landen.
+							const ziel = zuordnung.ordner.trim();
+							if (ziel && !(this.app.vault.getAbstractFileByPath(normalizePath(ziel)) instanceof TFolder)) {
+								new Notice(`Diesen Ordner gibt es im Vault nicht: ${ziel}`, 6000);
+							}
+						}),
+				);
 
 			new Setting(block).setName("Stunden-Unterordner").addText((text) =>
 				text.setValue(zuordnung.stundenOrdner).onChange(async (value) => {

@@ -26,7 +26,12 @@ export function leereZuordnung(groupId = 0): GruppenZuordnung {
 	return {
 		groupId,
 		lehrauftragLink: "",
-		ordner: "Bereiche/11 Unterricht",
+		// Bewusst leer. `Bereiche/11 Unterricht` stand hier vorher als Standard und sah
+		// richtig aus — es ist aber die Sammelstelle, nicht ein Lehrauftrag. Wer ihn
+		// stehen ließ, bekam die Stunden eine Ebene zu hoch und suchte sie im falschen
+		// Ordner. Ein leeres Feld, das der Sync abweist, ist ehrlicher als ein
+		// plausibler falscher Wert.
+		ordner: "",
 		stundenOrdner: "Unterrichtsstunden",
 		dateiMuster: STANDARD_DATEIMUSTER,
 	};

@@ -56,8 +56,39 @@ function stundenAnker(slot: SlotRead): string {
 	return slot.id;
 }
 
+export class ZuordnungFehler extends Error {
+	constructor(nachricht: string) {
+		super(nachricht);
+		this.name = "ZuordnungFehler";
+	}
+}
+
+/**
+ * Prüft, was ohne Vault-Zugriff prüfbar ist. Ein Sync, der Dateien in einen halb
+ * konfigurierten Ordner schreibt, ist schlimmer als einer, der sich weigert: Die
+ * Notizen liegen dann irgendwo, und der nächste Lauf mit richtiger Einstellung findet
+ * sie nicht wieder — er legt sie ein zweites Mal an.
+ */
+export function pruefeZuordnung(zuordnung: GruppenZuordnung): void {
+	if (!zuordnung.groupId) {
+		throw new ZuordnungFehler("Keine group_id eingetragen.");
+	}
+	if (!zuordnung.ordner.trim()) {
+		throw new ZuordnungFehler(
+			"Kein Ordner eingetragen. Erwartet wird der Ordner des Lehrauftrags, " +
+				'z. B. "Bereiche/11 Unterricht/NwT 9" — nicht der Sammelordner darüber.',
+		);
+	}
+	if (!zuordnung.lehrauftragLink.trim()) {
+		throw new ZuordnungFehler(
+			'Kein Lehrauftrag-Link eingetragen, z. B. "NwT 9 2627|NwT 9".',
+		);
+	}
+}
+
 export function materialize(input: MaterializeInput): SyncPlan {
 	const { zuordnung, overview, vorhanden } = input;
+	pruefeZuordnung(zuordnung);
 	const ops: SyncOp[] = [];
 
 	const index = new Map<string, VorhandeneNotiz>();
