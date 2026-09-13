@@ -27,8 +27,13 @@ npm test         # vitest gegen Fixtures — ohne Obsidian, ohne Server, ohne To
 npm run build    # tsc --noEmit + Produktionsbundle
 ```
 
-### Zwei Fallstricke
+### Drei Fallstricke
 
+- **`npm install` gehört auf den Mac.** esbuild ist ein natives Binary; eine Installation
+  aus einer Linux-Umgebung heraus (etwa Claudes `device_bash`, das auf dieselbe Platte
+  schreibt) legt `@esbuild/linux-arm64` ab, und `npm run dev` bricht mit „You installed
+  esbuild for another platform" ab. Heilung: `rm -rf node_modules package-lock.json`,
+  danach `npm install` im eigenen Terminal.
 - **`data.json` ist gitignored.** Obsidian schreibt die Plugin-Einstellungen in den
   Pluginordner — und der ist über den Symlink dieses Repo. Darin steht der Token.
 - **Im Produktivvault steht `.obsidian/plugins` nicht in der `.gitignore`.** Sobald das
