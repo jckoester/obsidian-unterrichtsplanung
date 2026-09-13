@@ -1,0 +1,5 @@
+.ups-status-ok { color: var(--text-success); }
+.ups-status-warn { color: var(--text-warning); }
+.ups-status-error { color: var(--text-error); }
+
+.ups-dryrun-op { font-family: var(--font-monospace); font-size: var(--font-ui-smaller); }

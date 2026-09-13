@@ -1,0 +1,25 @@
+{
+	"name": "obsidian-unterrichtsplanung-sync",
+	"version": "0.0.1",
+	"description": "Obsidian-Plugin: Sync-Client für die Unterrichtsplanung der GGD-KI-Plattform",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit && node esbuild.config.mjs production",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit",
+		"api-types": "openapi-typescript $npm_config_spec -o src/api/openapi.d.ts",
+		"seed": "bash scripts/seed-testvault.sh"
+	},
+	"devDependencies": {
+		"@types/node": "^22.10.2",
+		"builtin-modules": "^4.0.0",
+		"esbuild": "^0.24.2",
+		"obsidian": "^1.13.1",
+		"openapi-typescript": "^7.5.2",
+		"typescript": "^5.7.2",
+		"vitest": "^2.1.8"
+	}
+}

@@ -1,0 +1,12 @@
+node_modules/
+main.js
+main.js.map
+*.tsbuildinfo
+.DS_Store
+
+# Obsidian schreibt die Plugin-Einstellungen in den Pluginordner — und der ist
+# über den Symlink dieses Repo. Hier steht der Personal Access Token im Klartext.
+data.json
+
+# Hot-Reload-Marker des Testvaults
+.hotreload
