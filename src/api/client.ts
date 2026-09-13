@@ -52,6 +52,21 @@ export class GgdApiClient {
 		return json;
 	}
 
+	/**
+	 * Jahrgangsstufe der Gruppe — zum Vorbefüllen von `Stufe` in der Zuordnung.
+	 *
+	 * Der Umweg über die Curriculum-Auswahl ist Absicht: Sie liegt unter `/planning` und
+	 * ist damit für ein Token erreichbar, während `/subjects` und der Rest von `/groups`
+	 * gesperrt bleiben. `grade` ist `null`, wenn die Plattform den Jahrgang nicht kennt.
+	 */
+	async groupGrade(groupId: number): Promise<number | null> {
+		const { json } = await this.http.send<{ grade: number | null }>({
+			method: "GET",
+			path: `/planning/groups/${groupId}/curriculum-chapters`,
+		});
+		return json.grade ?? null;
+	}
+
 	async units(groupId: number): Promise<UnitRead[]> {
 		const { json } = await this.http.send<UnitRead[]>({
 			method: "GET",

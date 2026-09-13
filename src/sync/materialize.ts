@@ -8,6 +8,17 @@ import {
 	splitNote,
 	type FrontmatterValue,
 } from "./frontmatter";
+import {
+	baueLehrauftragsnotiz,
+	baueUeRumpf,
+	datumDeutsch,
+	slugify,
+	ueFelder,
+	ueNutzlast,
+	uePfad,
+	type LehrauftragKontext,
+} from "./notizen";
+import { ersetzeFrontmatter } from "./frontmatter";
 import type { SyncOp, SyncPlan } from "./plan";
 import { kategorieZuUStatus } from "./status";
 
@@ -24,8 +35,15 @@ export interface VorhandeneNotiz {
 
 export interface GruppenZuordnung {
 	groupId: number;
-	/** Notizname des Lehrauftrags, z. B. "NwT 9 2526|NwT 9" für den Wikilink. */
+	/**
+	 * Optionaler Überschreibwert für den Notiznamen des Lehrauftrags. Leer lassen:
+	 * Dann ist es der Ordnername — so, wie die Ordnernotiz ohnehin heißen muss.
+	 */
 	lehrauftragLink: string;
+	/** Vault-Konvention für das Fach, z. B. "NwT" → `Fach: "[[NwT]]"`. */
+	fach: string;
+	/** Jahrgangsstufe. Aus `/planning/groups/{id}/curriculum-chapters` befüllbar. */
+	stufe: number | null;
 	/** Ordner des Lehrauftrags, z. B. "Bereiche/11 Unterricht/NwT 9". */
 	ordner: string;
 	/** Unterordner für Stundennotizen, relativ zu `ordner`. */
@@ -40,6 +58,24 @@ export interface MaterializeInput {
 	zuordnung: GruppenZuordnung;
 	overview: OverviewRead;
 	vorhanden: VorhandeneNotiz[];
+	/** Inhalt von `System/Templates/Unterricht/Lehrauftrag-Template.md`, falls vorhanden. */
+	lehrauftragVorlage?: string | null;
+}
+
+/** Notizname des Lehrauftrags — Überschreibwert, sonst der Ordnername. */
+export function lehrauftragName(zuordnung: GruppenZuordnung): string {
+	const override = zuordnung.lehrauftragLink.trim();
+	if (override) return override;
+	const teile = zuordnung.ordner.split("/").filter(Boolean);
+	return teile[teile.length - 1] ?? "";
+}
+
+function kontextVon(zuordnung: GruppenZuordnung): LehrauftragKontext {
+	return {
+		name: lehrauftragName(zuordnung),
+		fach: zuordnung.fach,
+		stufe: zuordnung.stufe,
+	};
 }
 
 /** Der Anker. Siehe Kommentar in `stundenAnker`. */
@@ -79,9 +115,9 @@ export function pruefeZuordnung(zuordnung: GruppenZuordnung): void {
 				'z. B. "Bereiche/11 Unterricht/NwT 9" — nicht der Sammelordner darüber.',
 		);
 	}
-	if (!zuordnung.lehrauftragLink.trim()) {
+	if (!lehrauftragName(zuordnung)) {
 		throw new ZuordnungFehler(
-			'Kein Lehrauftrag-Link eingetragen, z. B. "NwT 9 2627|NwT 9".',
+			"Aus dem Ordner lässt sich kein Lehrauftragsname ableiten.",
 		);
 	}
 }
@@ -91,15 +127,84 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	pruefeZuordnung(zuordnung);
 	const ops: SyncOp[] = [];
 
+	// Zwei Register, nicht eines: Eine Stundennotiz trägt beide Felder — `ggd_slot_id`
+	// als Anker und `ggd_node_id` für den Stundenentwurf. In einem gemeinsamen Register
+	// könnte sie einer Unterrichtseinheit in die Quere kommen.
 	const index = new Map<string, VorhandeneNotiz>();
+	const ueIndex = new Map<string, VorhandeneNotiz>();
 	for (const notiz of vorhanden) {
 		const felder = readScalars(splitNote(notiz.inhalt).frontmatter);
-		const anker = felder[ANKER_FELD] ?? felder[UE_ANKER_FELD];
-		if (anker) index.set(anker, notiz);
+		const slotAnker = felder[ANKER_FELD];
+		if (slotAnker) {
+			index.set(slotAnker, notiz);
+			continue;
+		}
+		const ueAnker = felder[UE_ANKER_FELD];
+		if (ueAnker) ueIndex.set(ueAnker, notiz);
 	}
 
 	const einheiten = new Map<string, UnitRead>();
 	for (const unit of overview.units) einheiten.set(unit.id, unit);
+
+	const kontext = kontextVon(zuordnung);
+
+	// ── Lehrauftragsnotiz ────────────────────────────────────────────────────
+	// Nur anlegen, nie anfassen. Sie gehört dem Vault: Grundsätzliche Überlegungen,
+	// Notenbildung, der Statistikblock — nichts davon hat der Sync zu verantworten.
+	const lehrauftragPfad = `${zuordnung.ordner}/${kontext.name}.md`;
+	if (!vorhanden.some((n) => n.pfad === lehrauftragPfad)) {
+		ops.push({
+			art: "erstellen",
+			pfad: lehrauftragPfad,
+			inhalt: baueLehrauftragsnotiz(kontext, input.lehrauftragVorlage ?? null),
+			grund: "Lehrauftragsnotiz fehlt",
+		});
+	}
+
+	// ── Unterrichtseinheiten ─────────────────────────────────────────────────
+	const stundenJeUe = new Map<string, number>();
+	for (const slot of overview.slots) {
+		if (!slot.ue_node_id) continue;
+		stundenJeUe.set(slot.ue_node_id, (stundenJeUe.get(slot.ue_node_id) ?? 0) + 1);
+	}
+
+	for (const unit of overview.units) {
+		const pfad = uePfad(zuordnung.ordner, unit);
+		const stundenzahl = stundenJeUe.get(unit.id) ?? 0;
+		const serverHash = hashObject(ueNutzlast(unit, stundenzahl));
+		const felder = ueFelder(unit, kontext, stundenzahl, serverHash);
+		felder["ggd_group_id"] = zuordnung.groupId;
+		const bestehend = ueIndex.get(unit.id);
+
+		if (!bestehend) {
+			ops.push({
+				art: "erstellen",
+				pfad,
+				inhalt: `${renderFrontmatter(felder)}\n${baueUeRumpf()}`,
+			});
+			continue;
+		}
+
+		const alteFelder = readScalars(splitNote(bestehend.inhalt).frontmatter);
+		if (alteFelder["ggd_server_hash"] === serverHash) {
+			ops.push({ art: "unveraendert", pfad: bestehend.pfad });
+			continue;
+		}
+
+		// Rumpf bleibt, Frontmatter wird getauscht. Der Ordner behält seinen Namen,
+		// auch wenn die Einheit auf der Plattform umbenannt wurde: Darin liegt dein
+		// Material, und ein automatisches Verschieben ist kein Nebeneffekt, den ein
+		// Sync-Lauf haben sollte.
+		const titelGewandert = bestehend.pfad !== pfad;
+		ops.push({
+			art: "aktualisieren",
+			pfad: bestehend.pfad,
+			inhalt: ersetzeFrontmatter(bestehend.inhalt, felder),
+			grund: titelGewandert
+				? `Titel jetzt „${unit.title}" — Ordner bleibt ${bestehend.pfad}`
+				: "Serverstand neuer",
+		});
+	}
 
 	const slots = [...overview.slots].sort(vergleicheSlots);
 	const gesehen = new Set<string>();
@@ -209,30 +314,13 @@ export function stundenPfad(
 	nr: number,
 ): string {
 	const name = zuordnung.dateiMuster
-		.replace("{lehrauftrag}", anzeigeName(zuordnung.lehrauftragLink))
+		.replace("{lehrauftrag}", lehrauftragName(zuordnung))
 		.replace("{nr}", String(nr))
 		.replace("{datum}", slot.date)
 		.replace("{thema}", slugify(slot.thema ?? ""))
 		.trim();
 	const teile = [zuordnung.ordner, zuordnung.stundenOrdner, `${name}.md`].filter(Boolean);
 	return teile.join("/");
-}
-
-function anzeigeName(link: string): string {
-	const pipe = link.indexOf("|");
-	return pipe === -1 ? link : link.slice(pipe + 1);
-}
-
-export function slugify(text: string): string {
-	return text
-		.replace(/[\\/:*?"<>|#^[\]]/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-function datumDeutsch(iso: string): string {
-	const [jahr, monat, tag] = iso.split("-");
-	return `${tag}.${monat}.${jahr}`;
 }
 
 export function baueStundennotiz(
@@ -245,8 +333,8 @@ export function baueStundennotiz(
 ): string {
 	const felder: Record<string, FrontmatterValue> = {
 		Kategorien: ["[[UStunden]]"],
-		Lehrauftrag: `[[${zuordnung.lehrauftragLink}]]`,
-		UEinheit: unit ? `[[${unit.title}]]` : null,
+		Lehrauftrag: `[[${lehrauftragName(zuordnung)}]]`,
+		UEinheit: unit ? `[[${slugify(unit.title)}]]` : null,
 		Datum: slot.date,
 		UStatus: [kategorieZuUStatus(slot)],
 		Inhalte: slot.thema ?? null,

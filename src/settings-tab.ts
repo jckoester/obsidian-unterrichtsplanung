@@ -120,8 +120,10 @@ export class UpsSettingTab extends PluginSettingTab {
 			);
 
 			new Setting(block)
-				.setName("Lehrauftrag-Link")
-				.setDesc('Ziel des Wikilinks, z. B. "NwT 9 2526|NwT 9".')
+				.setName("Lehrauftrag-Notiz (optional)")
+				.setDesc(
+					"Leer lassen: Dann ist es der Ordnername — so heißt die Ordnernotiz ohnehin. Nur ausfüllen, wenn die Notiz anders heißen soll als ihr Ordner.",
+				)
 				.addText((text) =>
 					text.setValue(zuordnung.lehrauftragLink).onChange(async (value) => {
 						zuordnung.lehrauftragLink = value;
@@ -157,6 +159,58 @@ export class UpsSettingTab extends PluginSettingTab {
 				text.inputEl.addEventListener("blur", pruefe);
 				pruefe();
 			});
+
+			new Setting(block)
+				.setName("Fach")
+				.setDesc(
+					'Vault-Konvention, z. B. "NwT" — daraus wird `Fach: "[[NwT]]"`. Die Plattform kann das nicht liefern: Im Vault steht mal [[Chemie]], mal CH.',
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder("NwT")
+						.setValue(zuordnung.fach)
+						.onChange(async (value) => {
+							zuordnung.fach = value.trim();
+							await this.plugin.saveSettings();
+						}),
+				);
+
+			new Setting(block)
+				.setName("Stufe")
+				.setDesc("Jahrgangsstufe für Lehrauftrags- und UE-Notizen.")
+				.addText((text) =>
+					text
+						.setPlaceholder("9")
+						.setValue(zuordnung.stufe === null ? "" : String(zuordnung.stufe))
+						.onChange(async (value) => {
+							const zahl = Number.parseInt(value, 10);
+							zuordnung.stufe = Number.isFinite(zahl) ? zahl : null;
+							await this.plugin.saveSettings();
+						}),
+				)
+				.addButton((button) =>
+					button
+						.setButtonText("Von der Plattform")
+						.setTooltip("Jahrgang aus der Curriculum-Zuordnung der Gruppe holen")
+						.onClick(async () => {
+							if (!zuordnung.groupId) {
+								new Notice("Erst eine group_id eintragen.");
+								return;
+							}
+							try {
+								const grade = await this.plugin.api.groupGrade(zuordnung.groupId);
+								if (grade === null) {
+									new Notice("Die Plattform kennt den Jahrgang dieser Gruppe nicht.", 6000);
+									return;
+								}
+								zuordnung.stufe = grade;
+								await this.plugin.saveSettings();
+								this.display();
+							} catch (error) {
+								new Notice(deuteFehler(error as Error), 10000);
+							}
+						}),
+				);
 
 			new Setting(block).setName("Stunden-Unterordner").addText((text) =>
 				text.setValue(zuordnung.stundenOrdner).onChange(async (value) => {

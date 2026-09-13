@@ -91,3 +91,19 @@ export function extractOwnSection(body: string): string {
 	if (index === -1) return "";
 	return body.slice(index);
 }
+
+/**
+ * Tauscht den Frontmatter-Block aus und lässt den Rumpf Zeichen für Zeichen stehen.
+ *
+ * Für UE-Notizen ist das die ganze Aktualisierung: Das Plugin legt sie einmal an und
+ * pflegt danach nur noch die Felder. Alles darunter — Überlegungen, Material, eigene
+ * Überschriften — gehört dem Vault, auch wenn es nicht unter einer Marker-Überschrift
+ * steht.
+ */
+export function ersetzeFrontmatter(
+	inhalt: string,
+	felder: Record<string, FrontmatterValue>,
+): string {
+	const { body } = splitNote(inhalt);
+	return `${renderFrontmatter(felder)}\n${body}`;
+}

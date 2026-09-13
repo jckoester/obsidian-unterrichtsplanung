@@ -22,14 +22,21 @@ export async function syncGruppe(
 ): Promise<SyncErgebnis> {
 	const overview = await api.overview(zuordnung.groupId);
 
-	const suchOrdner = [zuordnung.ordner, zuordnung.stundenOrdner].filter(Boolean).join("/");
-	const pfade = await vault.list(suchOrdner);
+	// Der ganze Lehrauftragsordner, nicht nur der Stunden-Unterordner: Darin liegen auch
+	// die Lehrauftragsnotiz und die UE-Ordner, und ohne sie hielte der Plan jede
+	// vorhandene UE für fehlend und legte sie ein zweites Mal an.
+	const pfade = await vault.list(zuordnung.ordner);
 	const vorhanden: VorhandeneNotiz[] = [];
 	for (const pfad of pfade) {
 		vorhanden.push({ pfad, inhalt: await vault.read(pfad) });
 	}
 
-	const plan = materialize({ zuordnung, overview, vorhanden });
+	const plan = materialize({
+		zuordnung,
+		overview,
+		vorhanden,
+		lehrauftragVorlage: await leseVorlage(vault),
+	});
 	const fehler: string[] = [];
 
 	if (!dryRun) {
@@ -60,4 +67,16 @@ export async function syncGruppe(
 		zusammenfassung: planZusammenfassung(plan),
 		fehler,
 	};
+}
+
+/** Pfad der Lehrauftrag-Vorlage im Vault. Fehlt sie, baut das Plugin einen Ersatz. */
+export const LEHRAUFTRAG_VORLAGE = "System/Templates/Unterricht/Lehrauftrag-Template.md";
+
+async function leseVorlage(vault: VaultAdapter): Promise<string | null> {
+	try {
+		if (!(await vault.exists(LEHRAUFTRAG_VORLAGE))) return null;
+		return await vault.read(LEHRAUFTRAG_VORLAGE);
+	} catch {
+		return null;
+	}
 }

@@ -9,7 +9,9 @@ import { InMemoryVaultAdapter } from "../src/sync/vault-adapter";
 
 const zuordnung: GruppenZuordnung = {
 	groupId: 1,
-	lehrauftragLink: "NwT 9 2627|NwT 9",
+	lehrauftragLink: "",
+	fach: "NwT",
+	stufe: 9,
 	ordner: "Bereiche/11 Unterricht/NwT 9",
 	stundenOrdner: "Unterrichtsstunden",
 	dateiMuster: STANDARD_DATEIMUSTER,
@@ -30,20 +32,25 @@ describe("syncGruppe", () => {
 		const ergebnis = await syncGruppe(api(), vault, zuordnung, true);
 		expect(ergebnis.ausgefuehrt).toBe(false);
 		expect(vault.files.size).toBe(0);
-		expect(ergebnis.plan.ops).toHaveLength(2);
+		// Lehrauftragsnotiz + eine UE + zwei Stunden.
+		expect(ergebnis.plan.ops).toHaveLength(4);
 	});
 
 	it("schreibt scharf geschaltet die Notizen", async () => {
 		const vault = new InMemoryVaultAdapter();
 		const ergebnis = await syncGruppe(api(), vault, zuordnung, false);
 		expect(ergebnis.fehler).toHaveLength(0);
-		expect(vault.files.size).toBe(2);
+		expect(vault.files.size).toBe(4);
+		expect([...vault.files.keys()]).toContain("Bereiche/11 Unterricht/NwT 9/NwT 9.md");
 	});
 
 	it("läuft zweimal hintereinander ohne Änderung", async () => {
 		const vault = new InMemoryVaultAdapter();
 		await syncGruppe(api(), vault, zuordnung, false);
 		const zweit = await syncGruppe(api(), vault, zuordnung, false);
+		// Die Lehrauftragsnotiz taucht gar nicht mehr auf — sie existiert und gehört dem
+		// Vault; die übrigen sind unverändert.
 		expect(zweit.plan.ops.every((o) => o.art === "unveraendert")).toBe(true);
+		expect(zweit.plan.ops).toHaveLength(3);
 	});
 });

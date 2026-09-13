@@ -26,6 +26,8 @@ export function leereZuordnung(groupId = 0): GruppenZuordnung {
 	return {
 		groupId,
 		lehrauftragLink: "",
+		fach: "",
+		stufe: null,
 		// Bewusst leer. `Bereiche/11 Unterricht` stand hier vorher als Standard und sah
 		// richtig aus — es ist aber die Sammelstelle, nicht ein Lehrauftrag. Wer ihn
 		// stehen ließ, bekam die Stunden eine Ebene zu hoch und suchte sie im falschen
