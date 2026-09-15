@@ -43,10 +43,23 @@ export async function syncGruppe(
 		for (const op of plan.ops) {
 			try {
 				switch (op.art) {
+					// Zwei Wächter, und beide meinen dasselbe: Auf einem belegten Zielpfad
+					// liegt eine Notiz, die dem Plan nicht gehört — sonst stünde sie mit
+					// ihrem Anker darin. Sie zu überschreiben wäre ein Löschen mit anderem
+					// Namen. Lieber ein Fehler im Ergebnisfenster als eine Notiz weniger.
 					case "umbenennen":
-						if (op.vonPfad) await vault.rename(op.vonPfad, op.pfad);
+						if (!op.vonPfad) break;
+						if (await vault.exists(op.pfad)) {
+							throw new Error(`Zielpfad ist belegt: ${op.pfad}`);
+						}
+						await vault.rename(op.vonPfad, op.pfad);
 						break;
 					case "erstellen":
+						if (await vault.exists(op.pfad)) {
+							throw new Error(`Datei liegt schon dort: ${op.pfad}`);
+						}
+						if (op.inhalt !== undefined) await vault.write(op.pfad, op.inhalt);
+						break;
 					case "aktualisieren":
 					case "archivieren":
 					case "konflikt":

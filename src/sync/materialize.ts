@@ -206,6 +206,22 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		});
 	}
 
+	// Auch Einheiten verschwinden: Die Übersicht der Plattform liefert nur Knoten mit
+	// `status = active`, und der Lifecycle-Dienst archiviert persönliche Knoten nach
+	// Ablaufdatum von selbst. Für den Vault gilt dasselbe wie bei den Stunden —
+	// Grabstein statt Löschen. Umbenannt wird die UE-Notiz dabei nicht: In ihrem Ordner
+	// liegt das Material, und der Ordner bleibt, wo er ist.
+	for (const [anker, notiz] of ueIndex) {
+		if (einheiten.has(anker)) continue;
+		if (readScalars(splitNote(notiz.inhalt).frontmatter)["ggd_status"] === "archiviert") continue;
+		ops.push({
+			art: "archivieren",
+			pfad: notiz.pfad,
+			inhalt: setzeStatusArchiviert(notiz.inhalt),
+			grund: "Einheit auf der Plattform nicht mehr vorhanden",
+		});
+	}
+
 	const slots = [...overview.slots].sort(vergleicheSlots);
 	const gesehen = new Set<string>();
 
@@ -261,7 +277,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 			ops.push({
 				art: "konflikt",
 				pfad,
-				inhalt: mitKonfliktblock(neu, vorhandeneNotiz.inhalt),
+				inhalt: setzeHash(mitKonfliktblock(neu, vorhandeneNotiz.inhalt)),
 				grund: "beidseitig geändert — Plattform gewinnt, Vault-Fassung als Block angehängt",
 			});
 		} else {
@@ -273,17 +289,93 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	// hart, ohne Grabstein. Gelöscht wird im Vault trotzdem nichts.
 	for (const [anker, notiz] of index) {
 		if (gesehen.has(anker)) continue;
-		const { frontmatter } = splitNote(notiz.inhalt);
-		if (readScalars(frontmatter)["ggd_status"] === "archiviert") continue;
+		const felder = readScalars(splitNote(notiz.inhalt).frontmatter);
+		if (felder["ggd_status"] === "archiviert") continue;
+
+		// Die laufende Nummer im Dateinamen gehört den aktiven Stunden: Fällt eine weg,
+		// rückt die nächste auf und will genau diesen Namen. Die archivierte Notiz gibt
+		// ihn deshalb frei — bleiben tut sie, mit ihrem Datum im Namen.
+		const ziel = archivPfad(notiz.pfad, felder["Datum"]);
+		if (ziel !== notiz.pfad) {
+			ops.push({
+				art: "umbenennen",
+				pfad: ziel,
+				vonPfad: notiz.pfad,
+				grund: "archiviert — gibt seinen Namen frei",
+			});
+		}
 		ops.push({
 			art: "archivieren",
-			pfad: notiz.pfad,
+			pfad: ziel,
 			inhalt: setzeStatusArchiviert(notiz.inhalt),
 			grund: "auf der Plattform nicht mehr vorhanden",
 		});
 	}
 
-	return { gruppe: zuordnung.groupId, ops };
+	return {
+		gruppe: zuordnung.groupId,
+		ops: ordneKollisionsfrei(ops, new Set(vorhanden.map((n) => n.pfad))),
+	};
+}
+
+/** Wo eine archivierte Stundennotiz künftig liegt. Rein ableitbar, ohne Uhr. */
+function archivPfad(pfad: string, datum?: string): string {
+	const ohneEndung = pfad.replace(/\.md$/, "");
+	const zusatz = datum ? ` (archiviert ${datum})` : " (archiviert)";
+	return ohneEndung.endsWith(zusatz) ? pfad : `${ohneEndung}${zusatz}.md`;
+}
+
+/**
+ * Der Plan wird der Reihe nach ausgeführt — also muss jedes Ziel frei sein, wenn seine
+ * Operation an der Reihe ist. Von selbst stimmt das nicht: Die laufende Nummer im
+ * Dateinamen ist eine Position, keine Identität. Kommt vorne eine Stunde dazu, rutschen
+ * alle folgenden Nummern, und „erstellen Stunde 1" träfe die Datei, die eben noch
+ * Stunde 1 war — der Plan entsteht gegen das alte Dateibild, ausgeführt wird er gegen
+ * das mitwandernde.
+ *
+ * Deshalb wird hier umsortiert. Ein Ringtausch (zwei Stunden tauschen die Namen) lässt
+ * sich nicht sortieren; er braucht einen Zwischennamen. Bleibt am Ende etwas übrig,
+ * liegt eine vault-eigene Datei auf dem Zielpfad — dann bleibt die Operation im Plan
+ * stehen, damit der Wächter im Runner sie meldet, statt sie stillschweigend zu schlucken.
+ */
+function ordneKollisionsfrei(ops: SyncOp[], belegt: Set<string>): SyncOp[] {
+	const brauchtFreiesZiel = (op: SyncOp) => op.art === "umbenennen" || op.art === "erstellen";
+	const offen = ops.filter(brauchtFreiesZiel);
+	const rest = ops.filter((op) => !brauchtFreiesZiel(op));
+	const sortiert: SyncOp[] = [];
+	let zwischenschritte = 0;
+
+	while (offen.length > 0) {
+		const naechste = offen.find((op) => !belegt.has(op.pfad));
+		if (naechste) {
+			offen.splice(offen.indexOf(naechste), 1);
+			if (naechste.vonPfad) belegt.delete(naechste.vonPfad);
+			belegt.add(naechste.pfad);
+			sortiert.push(naechste);
+			continue;
+		}
+
+		// Kein Ziel ist frei. Entweder blockieren sich zwei Umbenennungen gegenseitig —
+		// dann löst ein Zwischenname den Ring — oder auf dem Zielpfad liegt eine Datei,
+		// die dem Plan nicht gehört; die ist hier nicht zu lösen.
+		const blockiert = offen[0];
+		const beleger = offen.find((op) => op.art === "umbenennen" && op.vonPfad === blockiert?.pfad);
+		if (!beleger?.vonPfad) break;
+
+		const von = beleger.vonPfad;
+		const zwischen = `${von.replace(/\.md$/, "")} (Zwischenschritt ${++zwischenschritte}).md`;
+		sortiert.push({
+			art: "umbenennen",
+			pfad: zwischen,
+			vonPfad: von,
+			grund: "Ringtausch der Namen — Zwischenschritt",
+		});
+		belegt.delete(von);
+		belegt.add(zwischen);
+		beleger.vonPfad = zwischen;
+	}
+
+	return [...sortiert, ...offen, ...rest];
 }
 
 function vergleicheSlots(a: SlotRead, b: SlotRead): number {
@@ -376,8 +468,18 @@ export function baueStundennotiz(
 		"",
 	].join("\n");
 
-	const roh = `${renderFrontmatter(felder)}\n${rumpf}`;
-	return roh.replace("ggd_hash: \"\"", `ggd_hash: ${hashNotizInhalt(roh)}`);
+	return setzeHash(`${renderFrontmatter(felder)}\n${rumpf}`);
+}
+
+/**
+ * Setzt `ggd_hash` auf den Hash des fertigen Textes — und zwar als Letztes.
+ *
+ * Wer vorher hasht und danach noch etwas anhängt (der Konfliktblock tat das), hinterlässt
+ * eine Notiz, die sich beim nächsten Lauf selbst als vault-geändert meldet, obwohl
+ * niemand sie angefasst hat.
+ */
+function setzeHash(inhalt: string): string {
+	return inhalt.replace(/^ggd_hash:.*$/m, `ggd_hash: ${hashNotizInhalt(inhalt)}`);
 }
 
 /**
@@ -390,14 +492,33 @@ export function hashNotizInhalt(inhalt: string): string {
 }
 
 function setzeStatusArchiviert(inhalt: string): string {
+	let mitStatus: string;
 	if (/^ggd_status:.*$/m.test(inhalt)) {
-		return inhalt.replace(/^ggd_status:.*$/m, "ggd_status: archiviert");
+		mitStatus = inhalt.replace(/^ggd_status:.*$/m, "ggd_status: archiviert");
+	} else {
+		const { frontmatter, body } = splitNote(inhalt);
+		mitStatus = `---\n${frontmatter}\nggd_status: archiviert\n---\n${body}`;
 	}
-	const { frontmatter, body } = splitNote(inhalt);
-	return `---\n${frontmatter}\nggd_status: archiviert\n---\n${body}`;
+	// Der Grabstein ist eine Änderung wie jede andere — ohne neuen Hash hielte der
+	// nächste Lauf die Notiz für vault-geändert.
+	return /^ggd_hash:/m.test(mitStatus) ? setzeHash(mitStatus) : mitStatus;
 }
 
 function mitKonfliktblock(neu: string, alt: string): string {
 	const alterRumpf = splitNote(alt).body.trim();
-	return `${neu.trimEnd()}\n\n> [!warning] Sync-Konflikt\n> Die Plattform hatte den neueren Stand. Die vorherige Vault-Fassung steht unten und wird beim nächsten Sync nicht angefasst.\n\n\`\`\`markdown\n${alterRumpf}\n\`\`\`\n`;
+	const zaun = "`".repeat(laengsterZaun(alterRumpf) + 1);
+	return `${neu.trimEnd()}\n\n> [!warning] Sync-Konflikt\n> Die Plattform hatte den neueren Stand. Die vorherige Vault-Fassung steht unten und wird beim nächsten Sync nicht angefasst.\n\n${zaun}markdown\n${alterRumpf}\n${zaun}\n`;
+}
+
+/**
+ * Wie lang der längste Backtick-Lauf im eingebetteten Text ist.
+ *
+ * Drei Backticks reichen als Zaun nicht: Enthält die gerettete Fassung selbst schon einen
+ * Konfliktblock, beendet dessen Zaun den äußeren — der Rest der Notiz rutscht in den
+ * Fließtext, und mit jedem weiteren Konflikt verschachtelt es sich tiefer.
+ */
+function laengsterZaun(inhalt: string): number {
+	let max = 2;
+	for (const treffer of inhalt.matchAll(/`+/g)) max = Math.max(max, treffer[0].length);
+	return max;
 }

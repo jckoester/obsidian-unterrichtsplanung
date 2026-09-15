@@ -44,6 +44,23 @@ function stunde(vorhanden: { pfad: string; inhalt: string }[], nr: number) {
 	return treffer;
 }
 
+/** Erster Lauf, dann beidseitige Änderung — der Ausgangspunkt beider Konflikt-Tests. */
+function konfliktLauf() {
+	const vorhanden = alsVorhanden(ersterLauf());
+	const eins = stunde(vorhanden, 1);
+	eins.inhalt = eins.inhalt.replace(
+		MARKER_UEBERSCHRIFT,
+		`${MARKER_UEBERSCHRIFT}\nMaterial liegt im Schrank.`,
+	);
+	const serverstand = structuredClone(stand);
+	serverstand.slots[0]!.thema = "Getriebe, zweitens";
+	const konflikt = materialize({ zuordnung, overview: serverstand, vorhanden }).ops.find(
+		(o) => o.art === "konflikt",
+	);
+	if (!konflikt) throw new Error("kein Konflikt im Plan");
+	return { konflikt, serverstand, vorhanden };
+}
+
 describe("materialize", () => {
 	it("legt für jeden Slot genau eine Notiz an", () => {
 		const plan = ersterLauf();
@@ -111,6 +128,68 @@ describe("materialize", () => {
 		expect(plan.ops.some((o) => o.art === "erstellen")).toBe(false);
 	});
 
+	it("gibt beim Archivieren den Dateinamen frei", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		const geschrumpft = structuredClone(stand);
+		geschrumpft.slots = [geschrumpft.slots[1]!]; // die erste Stunde fällt weg
+		const plan = materialize({ zuordnung, overview: geschrumpft, vorhanden });
+
+		const archiv = plan.ops.find((o) => o.art === "archivieren");
+		expect(archiv?.pfad).toBe(`${STUNDEN}/NwT 9 Stunde 1 (archiviert 2026-09-15).md`);
+
+		// … und die überlebende Stunde rückt auf den frei gewordenen Namen auf.
+		const aufrueckend = plan.ops.findIndex(
+			(o) => o.art === "umbenennen" && o.pfad === `${STUNDEN}/NwT 9 Stunde 1.md`,
+		);
+		const freigebend = plan.ops.findIndex(
+			(o) => o.art === "umbenennen" && o.pfad.includes("(archiviert"),
+		);
+		expect(freigebend).toBeGreaterThanOrEqual(0);
+		expect(freigebend).toBeLessThan(aufrueckend);
+	});
+
+	it("archiviert eine Einheit, die auf der Plattform verschwindet", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		const ohneEinheit = structuredClone(stand);
+		ohneEinheit.units = [];
+		for (const slot of ohneEinheit.slots) slot.ue_node_id = null;
+		const plan = materialize({ zuordnung, overview: ohneEinheit, vorhanden });
+
+		const archiv = plan.ops.find((o) => o.art === "archivieren");
+		expect(archiv?.pfad).toContain("UE1 - Mechanische Übertragung.md");
+		expect(archiv?.inhalt).toContain("ggd_status: archiviert");
+		// Der Ordner bleibt, wo er ist — darin liegt das Material.
+		expect(plan.ops.some((o) => o.art === "umbenennen")).toBe(false);
+	});
+
+	it("lässt eine Konfliktnotiz beim nächsten Lauf in Ruhe", () => {
+		const { konflikt, serverstand, vorhanden } = konfliktLauf();
+		const danach = vorhanden.map((v) =>
+			v.pfad === konflikt.pfad ? { pfad: v.pfad, inhalt: konflikt.inhalt as string } : v,
+		);
+		const zweit = materialize({ zuordnung, overview: serverstand, vorhanden: danach });
+		const op = zweit.ops.find((o) => o.pfad === konflikt.pfad);
+		expect(op?.art).toBe("unveraendert");
+		// Kein „nur Vault geändert": Der Hash steht über der fertigen Notiz, samt Block.
+		expect(op?.grund).toBeUndefined();
+	});
+
+	it("schachtelt Codezäune nicht ineinander", () => {
+		const { konflikt, serverstand, vorhanden } = konfliktLauf();
+		const danach = vorhanden.map((v) =>
+			v.pfad === konflikt.pfad
+				? { pfad: v.pfad, inhalt: `${konflikt.inhalt as string}\nUnd noch etwas.\n` }
+				: v,
+		);
+		const nochmal = structuredClone(serverstand);
+		nochmal.slots[0]!.thema = "Getriebe, drittens";
+		const zweiter = materialize({ zuordnung, overview: nochmal, vorhanden: danach }).ops.find(
+			(o) => o.art === "konflikt",
+		);
+		expect(zweiter?.inhalt).toContain("````markdown");
+		expect(zweiter?.inhalt).toContain("```markdown");
+	});
+
 	it("benennt um statt zu duplizieren, wenn sich das Datum verschiebt", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
 		const getauscht = structuredClone(stand);
@@ -132,11 +211,24 @@ describe("pruefeZuordnung", () => {
 		).toThrow(ZuordnungFehler);
 	});
 
-	it("weigert sich ohne group_id und ohne Lehrauftrag-Link", () => {
-		for (const kaputt of [{ groupId: 0 }, { lehrauftragLink: "" }]) {
-			expect(() =>
-				materialize({ zuordnung: { ...zuordnung, ...kaputt }, overview: stand, vorhanden: [] }),
-			).toThrow(ZuordnungFehler);
-		}
+	it("weigert sich ohne group_id", () => {
+		expect(() =>
+			materialize({
+				zuordnung: { ...zuordnung, groupId: 0 },
+				overview: stand,
+				vorhanden: [],
+			}),
+		).toThrow(ZuordnungFehler);
+	});
+
+	// Früher war der Link Pflicht. Seit der Name aus dem Ordner fällt, ist ein leeres
+	// Feld der Normalfall — der Test hält fest, was gilt, statt was einmal galt.
+	it("nimmt einen leeren Lehrauftrag-Link hin — dann gilt der Ordnername", () => {
+		const plan = materialize({
+			zuordnung: { ...zuordnung, lehrauftragLink: "" },
+			overview: stand,
+			vorhanden: [],
+		});
+		expect(plan.ops.some((o) => o.pfad === "Bereiche/11 Unterricht/NwT 9/NwT 9.md")).toBe(true);
 	});
 });

@@ -47,6 +47,10 @@ export class InMemoryVaultAdapter implements VaultAdapter {
 
 	async rename(from: string, to: string): Promise<void> {
 		const content = await this.read(from);
+		// So streng wie Obsidian: `renameFile` wirft, wenn das Ziel belegt ist. Ein
+		// nachsichtiges Testdoppel hat genau das lange verdeckt — im Speicher überschrieb
+		// die Umbenennung still, was im Vault ein Fehler gewesen wäre.
+		if (this.files.has(to)) throw new Error(`Zielpfad ist belegt: ${to}`);
 		this.files.delete(from);
 		this.files.set(to, content);
 	}

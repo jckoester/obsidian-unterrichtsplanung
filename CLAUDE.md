@@ -64,6 +64,8 @@ Zwei Nähte halten die Sync-Logik von Obsidian und vom Netz fern:
 
 Dazwischen liegt **`materialize()` (`src/sync/materialize.ts`) — eine reine Funktion**: Serverstand plus vorhandene Notizen rein, Liste von Dateioperationen (`SyncOp[]`) raus. Kein Vault-Zugriff, kein Netz, keine Uhr. Deshalb ist der Probelauf kein Sonderpfad, sondern derselbe Plan, nur nicht ausgeführt — und deshalb sind alle Sync-Zusagen ohne laufendes Obsidian prüfbar.
 
+**Die Reihenfolge im Plan ist Teil des Plans.** Der Dateiname trägt eine laufende Nummer, und die ist eine Position, keine Identität: Kommt vorne eine Stunde dazu, rutschen alle folgenden. `materialize()` sortiert Umbenennungen und Neuanlagen deshalb so, dass jedes Ziel frei ist, wenn es an der Reihe ist (Ringtausch über einen Zwischennamen); `runner.ts` weigert sich zusätzlich, auf einen belegten Pfad zu schreiben oder umzubenennen. Beides zusammen hält Zusage 1 — die Sortierung, damit der Sync durchläuft, der Wächter, damit im Zweifel ein Fehler im Ergebnisfenster steht statt einer Notiz weniger im Vault.
+
 **Diese Reinheit ist die wichtigste Eigenschaft des Codes.** Wer in `materialize()` etwas einbaut, das liest, schreibt, die Zeit abfragt oder zufällig ist, nimmt dem Projekt seine Testbarkeit. Was Ein-/Ausgabe braucht, gehört in `src/sync/runner.ts`.
 
 ```
@@ -112,7 +114,7 @@ Im Frontmatter jeder Notiz, kein separater Store:
 
 Diese vier gelten ohne Ausnahme. Wer eine davon aufweicht, ändert den Charakter des Werkzeugs:
 
-1. **Es wird nie gelöscht.** Verschwundenes bekommt `ggd_status: archiviert`. Die Plattform löscht hart, ohne Grabstein — Verschwundenes ist nur am Abgleich der Vollmenge erkennbar, nicht über ein Delta.
+1. **Es wird nie gelöscht.** Verschwundenes bekommt `ggd_status: archiviert` — Stunden wie Einheiten. Die Plattform löscht hart, ohne Grabstein; die Übersicht liefert ohnehin nur Knoten mit `status = active`, und der Lifecycle-Dienst archiviert von selbst. Verschwundenes ist deshalb nur am Abgleich der Vollmenge erkennbar, nicht über ein Delta. Eine archivierte **Stundennotiz** wird dabei umbenannt (`… Stunde 7 (archiviert 2026-10-13)`): Die laufende Nummer im Namen gehört den aktiven Stunden, und die nachrückende will sie haben. Eine archivierte **UE-Notiz** bleibt, wo sie ist — in ihrem Ordner liegt das Material.
 2. **Alles ab `## Eigene Notizen` gehört dem Vault** und wird in Stundennotizen nie überschrieben.
 3. **UE-Notizen werden einmal angelegt, danach nur im Frontmatter gepflegt.** Der Rumpf gehört dem Vault, auch ohne Marker. Der UE-Ordner ist zugleich die Materialsammlung und wird bei Umbenennung auf der Plattform **nicht** mitgezogen — das wäre ein Nebeneffekt zu viel für einen Sync-Lauf.
 4. **Die Lehrauftragsnotiz wird nur angelegt, nie angefasst**, wenn sie schon existiert.
@@ -146,7 +148,9 @@ Basis-URL enthält `/api` (das Präfix hängt der Reverse-Proxy davor, FastAPI b
 
 Alles andere gibt 403 „Dieser Bereich ist für Zugangstoken gesperrt", auch `/tokens/scopes` und der übrige `/groups`-Router. Schreiben impliziert Lesen **nicht**. Wer einen neuen Endpunkt benutzen will, ergänzt zuerst eine Zeile in `_ZUSTAENDIG` und zieht `backend/tests/unit/test_token_scopes.py` nach — so eng wie der Zweck, nicht so weit wie der Router.
 
-Benutzte Endpoints: `GET /groups/me`, `GET /planning/groups/{id}/overview`, `GET /planning/groups/{id}/units`, `GET /planning/groups/{id}/curriculum-chapters`, `GET /planning/lessons/{id}`, `GET /planning/lessons/{id}/export`, `PATCH /planning/slots/{id}`, `PATCH /planning/lessons/{id}`.
+Tatsächlich benutzt: `GET /groups/me` (Verbindungstest), `GET /planning/groups/{id}/overview` (der ganze Sync — Slots **und** Einheiten kommen daraus), `GET /planning/groups/{id}/curriculum-chapters` (Jahrgang vorbefüllen).
+
+Im Client vorhanden, aber ungenutzt: `GET /planning/groups/{id}/units` (die Übersicht liefert sie schon mit), `GET /planning/lessons/{id}` und `…/export` sowie beide `PATCH`-Wege. Das Stundenziel hängt am Stundenknoten und bleibt deshalb bis Stufe 2 leer — es einzeln nachzuladen hieße 40 bis 120 Anfragen pro Lauf gegen eine gedrosselte API, und der Rückkanal muss das Feld ohnehin anfassen.
 
 **Snapshots muss das Plugin nicht selbst anlegen.** `PATCH /planning/lessons/{id}` legt bei jedem Schreibzugriff einen an, `PATCH /planning/slots/{id}` bei Änderungen an `ue_node_id`, `stunde_node_id`, `thema` oder `kategorie` — also genau bei den Feldern aus Stufe 2.
 
@@ -158,7 +162,9 @@ Benutzte Endpoints: `GET /groups/me`, `GET /planning/groups/{id}/overview`, `GET
 
 `npm test` läuft ohne Obsidian, ohne Server und ohne Token — über `FixtureHttpClient` und `InMemoryVaultAdapter`. Neue Sync-Logik gehört in `materialize()` und wird dort geprüft, nicht über die Oberfläche.
 
-Geprüft werden **Zusagen, nicht Zeilen**: Idempotenz (zweiter Lauf ändert nichts), Server-Änderung, beidseitiger Konflikt, Erhalt des vault-eigenen Abschnitts, Archivieren statt Löschen, Umbenennen statt Duplizieren, unangetasteter UE-Rumpf.
+Geprüft werden **Zusagen, nicht Zeilen**: Idempotenz (zweiter Lauf ändert nichts), Server-Änderung, beidseitiger Konflikt, Erhalt des vault-eigenen Abschnitts, Archivieren statt Löschen, Umbenennen statt Duplizieren, unangetasteter UE-Rumpf — und die Ausführung des Plans: eine vorne eingefügte Stunde verliert keine Notiz, ein Ringtausch der Namen löst sich auf, eine vault-eigene Datei auf dem Zielpfad wird gemeldet statt überschrieben.
+
+Das `InMemoryVaultAdapter` ist dabei **so streng wie Obsidian**: Umbenennen auf einen belegten Pfad wirft. Ein nachsichtiges Testdoppel hat genau diesen Fehler einmal lange verdeckt.
 
 Tests wählen Operationen **über Pfade, nicht über Positionen im Plan** — der Plan wächst, sobald ein Notiztyp dazukommt.
 
