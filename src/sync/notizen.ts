@@ -86,11 +86,11 @@ export function ueFelder(
 		Stunden: stundenzahl,
 		Zusammenfassung: null,
 		Bild: null,
-		ggd_node_id: unit.id,
-		ggd_group_id: null,
-		ggd_updated_at: unit.updated_at,
-		ggd_server_hash: serverHash,
-		ggd_status: "aktiv",
+		uplan_node_id: unit.id,
+		uplan_group_id: null,
+		uplan_updated_at: unit.updated_at,
+		uplan_server_hash: serverHash,
+		uplan_status: "aktiv",
 	};
 }
 

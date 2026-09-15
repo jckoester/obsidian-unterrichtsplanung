@@ -59,23 +59,23 @@ Im Frontmatter jeder Notiz, kein separater Store:
 
 | Feld | Bedeutung |
 | --- | --- |
-| `ggd_slot_id` | Anker der Stundennotiz |
-| `ggd_node_id` | Stundenknoten, sobald es einen Entwurf gibt |
-| `ggd_group_id` | Gruppe der Plattform |
-| `ggd_updated_at` | Serverstand beim letzten Sync (billige Vorprüfung) |
-| `ggd_server_hash` | Hash der zuletzt empfangenen Serverfassung → Server-Dirty |
-| `ggd_hash` | Hash des zuletzt geschriebenen Inhalts → Vault-Dirty |
-| `ggd_status` | `aktiv` / `archiviert` |
+| `uplan_slot_id` | Anker der Stundennotiz |
+| `uplan_node_id` | Stundenknoten, sobald es einen Entwurf gibt |
+| `uplan_group_id` | Gruppe der Plattform |
+| `uplan_updated_at` | Serverstand beim letzten Sync (billige Vorprüfung) |
+| `uplan_server_hash` | Hash der zuletzt empfangenen Serverfassung → Server-Dirty |
+| `uplan_hash` | Hash des zuletzt geschriebenen Inhalts → Vault-Dirty |
+| `uplan_status` | `aktiv` / `archiviert` |
 
 **Warum der Slot ankert und nicht der Knoten:** Ein Slot existiert ab der
 Slot-Generierung, `stunde_node_id` erst, wenn jemand einen Entwurf anlegt. Am Knoten
 verankert bekäme jede leere Stunde beim ersten Entwurf einen neuen Anker — und damit ein
-Duplikat statt einer Aktualisierung. Das weicht vom Plan ab, der `ggd_node_id` als Anker
+Duplikat statt einer Aktualisierung. Das weicht vom Plan ab, der `uplan_node_id` als Anker
 nennt; beide Felder stehen in der Notiz.
 
 ### Zusagen an den Vault
 
-- Es wird **nie** gelöscht. Verschwundenes bekommt `ggd_status: archiviert`.
+- Es wird **nie** gelöscht. Verschwundenes bekommt `uplan_status: archiviert`.
 - Alles ab `## Eigene Notizen` gehört dem Vault und wird nie überschrieben.
 - Bei beidseitiger Änderung gewinnt die Plattform; die Vault-Fassung landet als Block in
   derselben Notiz.

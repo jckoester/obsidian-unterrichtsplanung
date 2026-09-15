@@ -79,8 +79,8 @@ function kontextVon(zuordnung: GruppenZuordnung): LehrauftragKontext {
 }
 
 /** Der Anker. Siehe Kommentar in `stundenAnker`. */
-const ANKER_FELD = "ggd_slot_id";
-const UE_ANKER_FELD = "ggd_node_id";
+const ANKER_FELD = "uplan_slot_id";
+const UE_ANKER_FELD = "uplan_node_id";
 
 /**
  * Warum der Slot und nicht der Stundenknoten ankert: Ein Slot existiert ab der
@@ -127,8 +127,8 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	pruefeZuordnung(zuordnung);
 	const ops: SyncOp[] = [];
 
-	// Zwei Register, nicht eines: Eine Stundennotiz trägt beide Felder — `ggd_slot_id`
-	// als Anker und `ggd_node_id` für den Stundenentwurf. In einem gemeinsamen Register
+	// Zwei Register, nicht eines: Eine Stundennotiz trägt beide Felder — `uplan_slot_id`
+	// als Anker und `uplan_node_id` für den Stundenentwurf. In einem gemeinsamen Register
 	// könnte sie einer Unterrichtseinheit in die Quere kommen.
 	const index = new Map<string, VorhandeneNotiz>();
 	const ueIndex = new Map<string, VorhandeneNotiz>();
@@ -173,7 +173,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		const stundenzahl = stundenJeUe.get(unit.id) ?? 0;
 		const serverHash = hashObject(ueNutzlast(unit, stundenzahl));
 		const felder = ueFelder(unit, kontext, stundenzahl, serverHash);
-		felder["ggd_group_id"] = zuordnung.groupId;
+		felder["uplan_group_id"] = zuordnung.groupId;
 		const bestehend = ueIndex.get(unit.id);
 
 		if (!bestehend) {
@@ -186,7 +186,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		}
 
 		const alteFelder = readScalars(splitNote(bestehend.inhalt).frontmatter);
-		if (alteFelder["ggd_server_hash"] === serverHash) {
+		if (alteFelder["uplan_server_hash"] === serverHash) {
 			ops.push({ art: "unveraendert", pfad: bestehend.pfad });
 			continue;
 		}
@@ -213,7 +213,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	// liegt das Material, und der Ordner bleibt, wo er ist.
 	for (const [anker, notiz] of ueIndex) {
 		if (einheiten.has(anker)) continue;
-		if (readScalars(splitNote(notiz.inhalt).frontmatter)["ggd_status"] === "archiviert") continue;
+		if (readScalars(splitNote(notiz.inhalt).frontmatter)["uplan_status"] === "archiviert") continue;
 		ops.push({
 			art: "archivieren",
 			pfad: notiz.pfad,
@@ -245,9 +245,9 @@ export function materialize(input: MaterializeInput): SyncPlan {
 
 		const felder = readScalars(splitNote(vorhandeneNotiz.inhalt).frontmatter);
 		const vaultGeaendert =
-			felder["ggd_hash"] !== undefined &&
-			felder["ggd_hash"] !== hashNotizInhalt(vorhandeneNotiz.inhalt);
-		const serverGeaendert = felder["ggd_server_hash"] !== serverHash;
+			felder["uplan_hash"] !== undefined &&
+			felder["uplan_hash"] !== hashNotizInhalt(vorhandeneNotiz.inhalt);
+		const serverGeaendert = felder["uplan_server_hash"] !== serverHash;
 
 		if (!serverGeaendert && !vaultGeaendert && vorhandeneNotiz.pfad === pfad) {
 			ops.push({ art: "unveraendert", pfad });
@@ -290,7 +290,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	for (const [anker, notiz] of index) {
 		if (gesehen.has(anker)) continue;
 		const felder = readScalars(splitNote(notiz.inhalt).frontmatter);
-		if (felder["ggd_status"] === "archiviert") continue;
+		if (felder["uplan_status"] === "archiviert") continue;
 
 		// Die laufende Nummer im Dateinamen gehört den aktiven Stunden: Fällt eine weg,
 		// rückt die nächste auf und will genau diesen Namen. Die archivierte Notiz gibt
@@ -431,13 +431,13 @@ export function baueStundennotiz(
 		UStatus: [kategorieZuUStatus(slot)],
 		Inhalte: slot.thema ?? null,
 		UStunden: slot.periods,
-		ggd_slot_id: slot.id,
-		ggd_node_id: slot.stunde_node_id,
-		ggd_group_id: slot.group_id,
-		ggd_updated_at: slot.updated_at,
-		ggd_server_hash: serverHash,
-		ggd_hash: "",
-		ggd_status: "aktiv",
+		uplan_slot_id: slot.id,
+		uplan_node_id: slot.stunde_node_id,
+		uplan_group_id: slot.group_id,
+		uplan_updated_at: slot.updated_at,
+		uplan_server_hash: serverHash,
+		uplan_hash: "",
+		uplan_status: "aktiv",
 	};
 
 	const kopf = [
@@ -472,36 +472,36 @@ export function baueStundennotiz(
 }
 
 /**
- * Setzt `ggd_hash` auf den Hash des fertigen Textes — und zwar als Letztes.
+ * Setzt `uplan_hash` auf den Hash des fertigen Textes — und zwar als Letztes.
  *
  * Wer vorher hasht und danach noch etwas anhängt (der Konfliktblock tat das), hinterlässt
  * eine Notiz, die sich beim nächsten Lauf selbst als vault-geändert meldet, obwohl
  * niemand sie angefasst hat.
  */
 function setzeHash(inhalt: string): string {
-	return inhalt.replace(/^ggd_hash:.*$/m, `ggd_hash: ${hashNotizInhalt(inhalt)}`);
+	return inhalt.replace(/^uplan_hash:.*$/m, `uplan_hash: ${hashNotizInhalt(inhalt)}`);
 }
 
 /**
- * Der Vault-Hash über den Inhalt **ohne** die `ggd_hash`-Zeile — sonst hinge der Hash
+ * Der Vault-Hash über den Inhalt **ohne** die `uplan_hash`-Zeile — sonst hinge der Hash
  * von sich selbst ab.
  */
 export function hashNotizInhalt(inhalt: string): string {
-	const ohne = inhalt.replace(/^ggd_hash:.*$/m, "ggd_hash:");
+	const ohne = inhalt.replace(/^uplan_hash:.*$/m, "uplan_hash:");
 	return hashObject(ohne);
 }
 
 function setzeStatusArchiviert(inhalt: string): string {
 	let mitStatus: string;
-	if (/^ggd_status:.*$/m.test(inhalt)) {
-		mitStatus = inhalt.replace(/^ggd_status:.*$/m, "ggd_status: archiviert");
+	if (/^uplan_status:.*$/m.test(inhalt)) {
+		mitStatus = inhalt.replace(/^uplan_status:.*$/m, "uplan_status: archiviert");
 	} else {
 		const { frontmatter, body } = splitNote(inhalt);
 		mitStatus = `---\n${frontmatter}\nggd_status: archiviert\n---\n${body}`;
 	}
 	// Der Grabstein ist eine Änderung wie jede andere — ohne neuen Hash hielte der
 	// nächste Lauf die Notiz für vault-geändert.
-	return /^ggd_hash:/m.test(mitStatus) ? setzeHash(mitStatus) : mitStatus;
+	return /^uplan_hash:/m.test(mitStatus) ? setzeHash(mitStatus) : mitStatus;
 }
 
 function mitKonfliktblock(neu: string, alt: string): string {

@@ -96,25 +96,25 @@ Im Frontmatter jeder Notiz, kein separater Store:
 
 | Feld | Bedeutung |
 | --- | --- |
-| `ggd_slot_id` | Anker der Stundennotiz |
-| `ggd_node_id` | Stundenknoten (Stunde) bzw. Anker (UE) |
-| `ggd_group_id` | Gruppe der Plattform |
-| `ggd_updated_at` | Serverstand beim letzten Sync — billige Vorprüfung |
-| `ggd_server_hash` | Hash der zuletzt empfangenen Serverfassung → Server-Dirty |
-| `ggd_hash` | Hash des zuletzt geschriebenen Inhalts → Vault-Dirty |
-| `ggd_status` | `aktiv` / `archiviert` |
+| `uplan_slot_id` | Anker der Stundennotiz |
+| `uplan_node_id` | Stundenknoten (Stunde) bzw. Anker (UE) |
+| `uplan_group_id` | Gruppe der Plattform |
+| `uplan_updated_at` | Serverstand beim letzten Sync — billige Vorprüfung |
+| `uplan_server_hash` | Hash der zuletzt empfangenen Serverfassung → Server-Dirty |
+| `uplan_hash` | Hash des zuletzt geschriebenen Inhalts → Vault-Dirty |
+| `uplan_status` | `aktiv` / `archiviert` |
 
-`ggd_hash` wird über den Inhalt **ohne die `ggd_hash`-Zeile** gebildet, sonst hinge der Hash von sich selbst ab (`hashNotizInhalt`).
+`uplan_hash` wird über den Inhalt **ohne die `uplan_hash`-Zeile** gebildet, sonst hinge der Hash von sich selbst ab (`hashNotizInhalt`).
 
 **Der Hash entscheidet, nicht der Zeitstempel.** `updated_at` bewegt sich auf der Plattform nur bei `PATCH /planning/slots/{id}` und `PATCH /planning/lessons/{id}`; über den Kontextweg bleibt er stehen. Ein stehender Zeitstempel beweist nichts. Er darf die Prüfung abkürzen (gleich → sicher unverändert), aber nie entscheiden.
 
-**Warum der Slot ankert und nicht der Stundenknoten:** Ein Slot existiert ab der Slot-Generierung, `stunde_node_id` erst, wenn jemand einen Entwurf anlegt. Am Knoten verankert bekäme jede leere Stunde beim ersten Entwurf einen neuen Anker — und damit ein Duplikat statt einer Aktualisierung. Das weicht bewusst vom Plan ab, der `ggd_node_id` nennt; beide Felder stehen in der Notiz.
+**Warum der Slot ankert und nicht der Stundenknoten:** Ein Slot existiert ab der Slot-Generierung, `stunde_node_id` erst, wenn jemand einen Entwurf anlegt. Am Knoten verankert bekäme jede leere Stunde beim ersten Entwurf einen neuen Anker — und damit ein Duplikat statt einer Aktualisierung. Das weicht bewusst vom Plan ab, der `uplan_node_id` nennt; beide Felder stehen in der Notiz.
 
 ### Zusagen an den Vault
 
 Diese vier gelten ohne Ausnahme. Wer eine davon aufweicht, ändert den Charakter des Werkzeugs:
 
-1. **Es wird nie gelöscht.** Verschwundenes bekommt `ggd_status: archiviert` — Stunden wie Einheiten. Die Plattform löscht hart, ohne Grabstein; die Übersicht liefert ohnehin nur Knoten mit `status = active`, und der Lifecycle-Dienst archiviert von selbst. Verschwundenes ist deshalb nur am Abgleich der Vollmenge erkennbar, nicht über ein Delta. Eine archivierte **Stundennotiz** wird dabei umbenannt (`… Stunde 7 (archiviert 2026-10-13)`): Die laufende Nummer im Namen gehört den aktiven Stunden, und die nachrückende will sie haben. Eine archivierte **UE-Notiz** bleibt, wo sie ist — in ihrem Ordner liegt das Material.
+1. **Es wird nie gelöscht.** Verschwundenes bekommt `uplan_status: archiviert` — Stunden wie Einheiten. Die Plattform löscht hart, ohne Grabstein; die Übersicht liefert ohnehin nur Knoten mit `status = active`, und der Lifecycle-Dienst archiviert von selbst. Verschwundenes ist deshalb nur am Abgleich der Vollmenge erkennbar, nicht über ein Delta. Eine archivierte **Stundennotiz** wird dabei umbenannt (`… Stunde 7 (archiviert 2026-10-13)`): Die laufende Nummer im Namen gehört den aktiven Stunden, und die nachrückende will sie haben. Eine archivierte **UE-Notiz** bleibt, wo sie ist — in ihrem Ordner liegt das Material.
 2. **Alles ab `## Eigene Notizen` gehört dem Vault** und wird in Stundennotizen nie überschrieben.
 3. **UE-Notizen werden einmal angelegt, danach nur im Frontmatter gepflegt.** Der Rumpf gehört dem Vault, auch ohne Marker. Der UE-Ordner ist zugleich die Materialsammlung und wird bei Umbenennung auf der Plattform **nicht** mitgezogen — das wäre ein Nebeneffekt zu viel für einen Sync-Lauf.
 4. **Die Lehrauftragsnotiz wird nur angelegt, nie angefasst**, wenn sie schon existiert.

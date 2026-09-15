@@ -17,7 +17,7 @@ describe("frontmatter", () => {
 	it("liest Skalare und überspringt Listen", () => {
 		const felder = readScalars('Kategorien:\n  - "[[UStunden]]"\nDatum: 2026-09-15\nggd_hash: abc');
 		expect(felder["Datum"]).toBe("2026-09-15");
-		expect(felder["ggd_hash"]).toBe("abc");
+		expect(felder["uplan_hash"]).toBe("abc");
 		expect(felder["Kategorien"]).toBeUndefined();
 	});
 

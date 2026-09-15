@@ -123,7 +123,7 @@ describe("materialize", () => {
 		geschrumpft.slots = [geschrumpft.slots[0]!];
 		const plan = materialize({ zuordnung, overview: geschrumpft, vorhanden });
 		const archiv = plan.ops.find((o) => o.art === "archivieren");
-		expect(archiv?.inhalt).toContain("ggd_status: archiviert");
+		expect(archiv?.inhalt).toContain("uplan_status: archiviert");
 		expect(archiv?.pfad).toContain("Stunde 2");
 		expect(plan.ops.some((o) => o.art === "erstellen")).toBe(false);
 	});
@@ -157,7 +157,7 @@ describe("materialize", () => {
 
 		const archiv = plan.ops.find((o) => o.art === "archivieren");
 		expect(archiv?.pfad).toContain("UE1 - Mechanische Übertragung.md");
-		expect(archiv?.inhalt).toContain("ggd_status: archiviert");
+		expect(archiv?.inhalt).toContain("uplan_status: archiviert");
 		// Der Ordner bleibt, wo er ist — darin liegt das Material.
 		expect(plan.ops.some((o) => o.art === "umbenennen")).toBe(false);
 	});

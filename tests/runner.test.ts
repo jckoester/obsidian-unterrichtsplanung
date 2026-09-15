@@ -40,7 +40,7 @@ function slotIds(vault: InMemoryVaultAdapter): Set<string> {
 	const ids = new Set<string>();
 	for (const [pfad, inhalt] of vault.files) {
 		if (!pfad.startsWith(STUNDEN)) continue;
-		const treffer = /^ggd_slot_id: (.*)$/m.exec(inhalt);
+		const treffer = /^uplan_slot_id: (.*)$/m.exec(inhalt);
 		if (treffer?.[1]) ids.add(treffer[1]);
 	}
 	return ids;
