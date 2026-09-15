@@ -53,6 +53,23 @@ Der Testvault liegt unter `~/Documents/1 Projekte/Testvault-Unterricht` und bind
 
 **Das Scope-Gatter der Plattform ist Deny-by-default.** Siehe unten — ein neuer Endpunkt ist erst erreichbar, wenn sein Pfad dort steht.
 
+## Benennung: `uplan` gegen `ggd`
+
+Die Grenze ist nicht das Wort, sondern die Seite: **In Jans eigenen Notizen steht `uplan`, an der Schnittstelle zur Schulplattform steht `ggd`.**
+
+- Frontmatter-Felder und Marker in Vault-Notizen: `uplan_node_id`, `uplan_hash`, `<!-- uplan:ende -->` — `ggd` ist das Schulkürzel und hat im Eigenschaften-Panel einer privaten Notiz nichts zu suchen.
+- Unverändert bleiben `ggd_pat_` (Token-Präfix der Plattform) und die Klasse `GgdApiClient`. Sie sprechen mit dem Schulsystem; da ist das Kürzel richtig.
+
+Bei einem neuen Bezeichner zuerst klären, auf welcher Seite der Grenze er liegt.
+
+## Werkzeug-Fallstrick: kein `perl -pi` im Repo
+
+Textersetzungen über mehrere Dateien mit einem Python-Skript machen, das liest und mit `write_text()` zurückschreibt — nicht mit `perl -pi` oder `sed -i`.
+
+In-place-Bearbeitung benennt die Originaldatei um und legt eine neue an. Liegt das Repo auf einem FUSE-Mount (so erreicht Claude in Cowork die Platte), bleibt die alte Inode als `.fuse_hidden…` zurück. Bei sieben Feldern über mehrere Dateien waren das 175 verwaiste Dateien, die zusätzlich jede folgende `grep -r`-Zählung verfälscht haben.
+
+Kontrolle danach: `find . -name '.fuse_hidden*' -not -path './node_modules/*' | wc -l`
+
 ## Architektur
 
 Zwei Nähte halten die Sync-Logik von Obsidian und vom Netz fern:
