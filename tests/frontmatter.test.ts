@@ -28,6 +28,22 @@ describe("frontmatter", () => {
 		expect(yaml).toContain('Lehrauftrag: "[[NwT 9 2526|NwT 9]]"');
 	});
 
+	it("escapt Backslashes, bevor es Anführungszeichen escapt", () => {
+		const yaml = renderFrontmatter({ Inhalte: 'Pfad C:\\temp und "Zitat"' });
+		expect(yaml).toContain('Inhalte: "Pfad C:\\\\temp und \\"Zitat\\""');
+	});
+
+	it("schreibt Mehrzeiliges als Blockskalar", () => {
+		const yaml = renderFrontmatter({ Stundenziel: "Die SuS können\n\n- rechnen" });
+		expect(yaml).toContain("Stundenziel: |-\n  Die SuS können\n\n  - rechnen\n");
+	});
+
+	it("beendet das Frontmatter nicht an einem eingerückten ---", () => {
+		const { frontmatter, body } = splitNote("---\nZiel: |-\n  oben\n  ---\n  unten\nDatum: x\n---\nRumpf\n");
+		expect(frontmatter).toContain("Datum: x");
+		expect(body).toBe("Rumpf\n");
+	});
+
 	it("lässt Emoji-Statuswerte unquotiert", () => {
 		expect(renderFrontmatter({ UStatus: ["🟢 vorbereitet"] })).toContain("  - 🟢 vorbereitet");
 	});

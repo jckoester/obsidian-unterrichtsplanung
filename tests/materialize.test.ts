@@ -166,6 +166,36 @@ describe("materialize", () => {
 		}
 	});
 
+	describe("Stundenziel", () => {
+		const B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+		const mitZiel = (stundenziel: string | null) => (vorhanden: { pfad: string; inhalt: string }[]) =>
+			materialize({ zuordnung, overview: stand, vorhanden, stundenknoten: [{ id: B, stundenziel }] });
+
+		it("steht im Frontmatter der Stunde, deren Knoten es trägt", () => {
+			const plan = mitZiel("Übersetzungen berechnen")([]);
+			expect(plan.ops.find((o) => o.pfad === ZWEITE)?.inhalt).toContain(
+				"Stundenziel: Übersetzungen berechnen",
+			);
+			// Der erste Slot hat keinen Knoten, also auch kein Ziel.
+			expect(plan.ops.find((o) => o.pfad === ERSTE)?.inhalt).toMatch(/^Stundenziel:$/m);
+		});
+
+		it("gilt als Serveränderung, wenn es sich auf der Plattform ändert", () => {
+			const vorhanden = alsVorhanden(mitZiel("Übersetzungen berechnen")([]));
+			expect(mitZiel("Übersetzungen berechnen")(vorhanden).ops.every((o) => o.art === "unveraendert")).toBe(true);
+			const zweit = mitZiel("Übersetzungen sicher berechnen")(vorhanden);
+			expect(zweit.ops.filter((o) => o.art !== "unveraendert").map((o) => o.pfad)).toEqual([ZWEITE]);
+		});
+
+		it("überlebt Zeilenumbrüche und eine Trennlinie — der zweite Lauf ist ruhig", () => {
+			const ziel = "Die SuS können\n---\n- Übersetzungen berechnen";
+			const erst = mitZiel(ziel)([]);
+			const zweite = erst.ops.find((o) => o.pfad === ZWEITE)?.inhalt ?? "";
+			expect(zweite).toContain("Stundenziel: |-\n  Die SuS können\n  ---\n  - Übersetzungen berechnen\n");
+			expect(mitZiel(ziel)(alsVorhanden(erst)).ops.every((o) => o.art === "unveraendert")).toBe(true);
+		});
+	});
+
 	it("ist idempotent — zweiter Lauf ändert nichts", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
 		const zweit = materialize({ zuordnung, overview: stand, vorhanden });

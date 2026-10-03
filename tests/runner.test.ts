@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import overview from "../fixtures/overview-group1.json";
 import gruppen from "../fixtures/groups-me.json";
+import knoten from "../fixtures/context-nodes-group1.json";
 import type { OverviewRead, SlotRead } from "../src/api/types";
 import { GgdApiClient } from "../src/api/client";
 import { FixtureHttpClient } from "../src/api/http";
@@ -19,12 +20,21 @@ const zuordnung: GruppenZuordnung = {
 
 const stand = overview as unknown as OverviewRead;
 
-function apiMit(serverstand: OverviewRead) {
+function apiMit(
+	serverstand: OverviewRead,
+	weitere: Record<string, unknown> = {},
+	statuses: Record<string, number> = {},
+) {
 	return new GgdApiClient(
-		new FixtureHttpClient({
-			"GET /planning/groups/1/overview": serverstand,
-			"GET /groups/me": gruppen,
-		}),
+		new FixtureHttpClient(
+			{
+				"GET /planning/groups/1/overview": serverstand,
+				"GET /context/nodes": knoten,
+				"GET /groups/me": gruppen,
+				...weitere,
+			},
+			statuses,
+		),
 	);
 }
 
@@ -176,6 +186,48 @@ describe("syncGruppe", () => {
 		expect(ergebnis.fehler).toHaveLength(0);
 		expect(vault.files.has(`${STUNDEN}/NwT 9 2026-09-22 (archiviert).md`)).toBe(false);
 		expect(await vault.read(`${STUNDEN}/NwT 9 2026-09-22.md`)).toContain("uplan_status: aktiv");
+	});
+
+	it("schreibt das Stundenziel aus dem Sammelabruf ins Frontmatter", async () => {
+		const vault = new InMemoryVaultAdapter();
+		await syncGruppe(api(), vault, zuordnung, false);
+		expect(await vault.read(`${STUNDEN}/NwT 9 2026-09-22.md`)).toContain(
+			"Stundenziel: Übersetzungsverhältnisse an Zahnradgetrieben berechnen",
+		);
+	});
+
+	// Der Sammelabruf filtert über die Gruppe des Knotens. Ein Knoten aus der Vorjahresgruppe,
+	// per Kopie oder von Hand an den Slot gehängt, fällt dort heraus.
+	it("holt einen Stundenknoten aus fremder Gruppe einzeln nach", async () => {
+		const vault = new InMemoryVaultAdapter();
+		const fremd = { stundenziel: "Aus dem Vorjahr übernommen" };
+		await syncGruppe(
+			apiMit(stand, {
+				"GET /context/nodes": [],
+				"GET /planning/lessons/bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb": fremd,
+			}),
+			vault,
+			zuordnung,
+			false,
+		);
+		expect(await vault.read(`${STUNDEN}/NwT 9 2026-09-22.md`)).toContain(
+			"Stundenziel: Aus dem Vorjahr übernommen",
+		);
+	});
+
+	it("bricht nicht ab, wenn ein Stundenknoten gar nicht lesbar ist", async () => {
+		const vault = new InMemoryVaultAdapter();
+		const ergebnis = await syncGruppe(apiMit(stand, { "GET /context/nodes": [] }), vault, zuordnung, false);
+		expect(ergebnis.fehler).toHaveLength(0);
+		expect(await vault.read(`${STUNDEN}/NwT 9 2026-09-22.md`)).toMatch(/^Stundenziel:$/m);
+	});
+
+	it("sagt bei gesperrtem Sammelabruf, welcher Scope fehlt", async () => {
+		const vault = new InMemoryVaultAdapter();
+		await expect(
+			syncGruppe(apiMit(stand, {}, { "GET /context/nodes": 403 }), vault, zuordnung, false),
+		).rejects.toThrow("context:read");
+		expect(vault.files.size).toBe(0);
 	});
 
 	it("läuft zweimal hintereinander ohne Änderung", async () => {

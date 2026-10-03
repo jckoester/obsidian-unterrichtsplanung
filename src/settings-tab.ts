@@ -63,7 +63,10 @@ export class UpsSettingTab extends PluginSettingTab {
 						for (const z of zugeordnet) {
 							try {
 								const probe = await this.plugin.api.gruppenprobe(z.groupId);
-								zeilen.push(`Gruppe ${z.groupId}: ${probe.schuljahr}, ${probe.slots} Slots`);
+								const stunden = probe.stundenLesbar
+									? "Stundenknoten lesbar"
+									: "Stundenknoten gesperrt — dem Token fehlt context:read";
+								zeilen.push(`Gruppe ${z.groupId}: ${probe.schuljahr}, ${probe.slots} Slots, ${stunden}`);
 							} catch (error) {
 								zeilen.push(`Gruppe ${z.groupId}: ${deuteFehler(error as Error)}`);
 							}

@@ -38,13 +38,18 @@ export interface NoteParts {
 	body: string;
 }
 
+/**
+ * Die Grenzen `---` zählen nur am Zeilenanfang — so liest auch Obsidian. Ein eingerücktes
+ * `---` gehört zu einem Wert: Ein mehrzeiliges Stundenziel mit Trennlinie darf das
+ * Frontmatter nicht vorzeitig beenden.
+ */
 export function splitNote(content: string): NoteParts {
 	const lines = content.split("\n");
-	if (lines[0]?.trim() !== FRONTMATTER_GRENZE) {
+	if (lines[0]?.trimEnd() !== FRONTMATTER_GRENZE) {
 		return { frontmatter: "", body: content };
 	}
 	for (let i = 1; i < lines.length; i++) {
-		if (lines[i]?.trim() === FRONTMATTER_GRENZE) {
+		if (lines[i]?.trimEnd() === FRONTMATTER_GRENZE) {
 			return {
 				frontmatter: lines.slice(1, i).join("\n"),
 				body: lines.slice(i + 1).join("\n").replace(/^\n/, ""),
@@ -87,6 +92,11 @@ export function renderFrontmatter(fields: Record<string, FrontmatterValue>): str
 		} else if (Array.isArray(value)) {
 			lines.push(`${key}:`);
 			for (const item of value) lines.push(`  - ${quoteIfNeeded(item)}`);
+		} else if (typeof value === "string" && value.includes("\n")) {
+			// Mehrzeilig als Blockskalar. In Anführungszeichen faltete YAML die Umbrüche zu
+			// Leerzeichen, und eine nicht eingerückte Folgezeile zerbräche das Frontmatter.
+			lines.push(`${key}: |-`);
+			for (const zeile of value.split("\n")) lines.push(zeile ? `  ${zeile}` : "");
 		} else if (typeof value === "string") {
 			lines.push(`${key}: ${quoteIfNeeded(value)}`);
 		} else {
@@ -101,7 +111,9 @@ function quoteIfNeeded(value: string): string {
 	// Wikilinks und alles mit YAML-Sonderzeichen in Anführungszeichen — sonst
 	// verschluckt Obsidian den Wert stillschweigend.
 	if (/^[\p{L}\p{N} .,\-–/()°äöüÄÖÜß✅🟢🟡🔵🟣🔴⚫️🗄️]+$/u.test(value)) return value;
-	return `"${value.replace(/"/g, '\\"')}"`;
+	// Der Backslash zuerst: In doppelten Anführungszeichen ist er YAMLs Escape-Zeichen, und
+	// ein `\b` im Text käme sonst als Steuerzeichen an.
+	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 /**

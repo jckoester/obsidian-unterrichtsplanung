@@ -1,5 +1,6 @@
-import type { HttpClient } from "./http";
+import { HttpError, type HttpClient } from "./http";
 import type {
+	ContextNodeRead,
 	LessonRead,
 	LessonUpdate,
 	MyGroup,
@@ -10,6 +11,14 @@ import type {
 	UnitRead,
 	Uuid,
 } from "./types";
+
+/** Höchstwert der Plattform für `limit` auf `/context/nodes`. */
+const SEITENGROESSE = 500;
+const MAX_SEITEN = 20;
+
+function stundenFilter(groupId: number, limit: number, offset: number) {
+	return { content_type: "unterrichtsstunde", group_id: groupId, limit, offset };
+}
 
 /**
  * Die ~10 Endpoints, die das Plugin braucht.
@@ -37,10 +46,24 @@ export class GgdApiClient {
 		return json.items ?? [];
 	}
 
-	/** Probe auf eine konkrete Gruppe — prüft zusätzlich, ob die Planung dort steht. */
-	async gruppenprobe(groupId: number): Promise<{ schuljahr: string; slots: number }> {
+	/**
+	 * Probe auf eine konkrete Gruppe — prüft zusätzlich, ob die Planung dort steht und ob
+	 * die Stundenknoten lesbar sind. Das Zweite fragt den Scope `context:read` ab: Fehlt er,
+	 * antwortet das Gatter mit derselben Meldung wie für einen gesperrten Pfad, und der
+	 * Sync bräche erst beim nächsten Lauf ab — hier fällt es beim Einrichten auf.
+	 */
+	async gruppenprobe(
+		groupId: number,
+	): Promise<{ schuljahr: string; slots: number; stundenLesbar: boolean }> {
 		const overview = await this.overview(groupId);
-		return { schuljahr: overview.schuljahr, slots: overview.slots.length };
+		let stundenLesbar = true;
+		try {
+			await this.http.send({ method: "GET", path: "/context/nodes", query: stundenFilter(groupId, 1, 0) });
+		} catch (error) {
+			if (!(error instanceof HttpError && error.status === 403)) throw error;
+			stundenLesbar = false;
+		}
+		return { schuljahr: overview.schuljahr, slots: overview.slots.length, stundenLesbar };
 	}
 
 	/** Immer das ganze Schuljahr — die Übersicht kennt keinen Halbjahresfilter. */
@@ -73,6 +96,28 @@ export class GgdApiClient {
 			path: `/planning/groups/${groupId}/units`,
 		});
 		return json;
+	}
+
+	/**
+	 * Alle Stundenknoten einer Gruppe — seitenweise je 500 statt einer Anfrage je Stunde
+	 * gegen eine gedrosselte API. Braucht `context:read`.
+	 *
+	 * `group_id` filtert über `read_scope_group_id`. Das trifft, was die Planung anlegt,
+	 * aber nicht zwingend alles, was an einem Slot hängt — siehe `holeStundenknoten`.
+	 */
+	async stundenknoten(groupId: number): Promise<ContextNodeRead[]> {
+		const alle: ContextNodeRead[] = [];
+		for (let seite = 0; seite < MAX_SEITEN; seite++) {
+			const { json } = await this.http.send<ContextNodeRead[]>({
+				method: "GET",
+				path: "/context/nodes",
+				query: stundenFilter(groupId, SEITENGROESSE, seite * SEITENGROESSE),
+			});
+			alle.push(...json);
+			if (json.length < SEITENGROESSE) return alle;
+		}
+		// Eine Plattform, die `offset` überginge, lieferte endlos dieselbe volle Seite.
+		throw new Error(`Mehr als ${MAX_SEITEN * SEITENGROESSE} Stundenknoten in Gruppe ${groupId}?`);
 	}
 
 	async lesson(nodeId: Uuid): Promise<LessonRead> {

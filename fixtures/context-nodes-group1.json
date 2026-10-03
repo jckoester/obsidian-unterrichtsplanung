@@ -1,0 +1,35 @@
+[
+	{
+		"id": "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+		"category": "artifact",
+		"content_type": "unterrichtsstunde",
+		"title": "Klassenarbeit 1",
+		"title_locked": false,
+		"content": null,
+		"metadata": {
+			"stundenziel": "Übersetzungsverhältnisse an Zahnradgetrieben berechnen",
+			"phasen": [
+				{ "id": "p1", "name": "Hinweise zur Arbeit", "dauer_min": 5, "prio": "kern" },
+				{ "id": "p2", "name": "Bearbeitung", "dauer_min": 80, "prio": "kern" }
+			],
+			"refs": []
+		},
+		"owner_pseudonym": "lk-test",
+		"read_scope": "group_teachers",
+		"write_scope": "group_teachers",
+		"read_scope_group_id": 1,
+		"write_scope_group_id": 1,
+		"assistant_id": null,
+		"subject_id": null,
+		"min_grade": null,
+		"max_grade": null,
+		"status": "active",
+		"valid_until": null,
+		"archived_at": null,
+		"schuljahr": "2026/27",
+		"created_at": "2026-09-01T08:00:00Z",
+		"updated_at": "2026-09-10T12:00:00Z",
+		"aliase": [],
+		"darf_schreiben": true
+	}
+]

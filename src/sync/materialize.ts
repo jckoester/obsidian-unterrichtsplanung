@@ -52,10 +52,25 @@ export interface GruppenZuordnung {
 	stundenOrdner: string;
 }
 
+/**
+ * Was der Sync vom Stundenknoten braucht — gleich, ob er aus dem Sammelabruf über
+ * `/context/nodes` kommt oder einzeln aus `/planning/lessons/{id}`. Die beiden Antworten
+ * sehen verschieden aus; hier sind sie eins.
+ */
+export interface Stundenknoten {
+	id: string;
+	stundenziel: string | null;
+}
+
 export interface MaterializeInput {
 	zuordnung: GruppenZuordnung;
 	overview: OverviewRead;
 	vorhanden: VorhandeneNotiz[];
+	/**
+	 * Die Stundenknoten zu den Slots der Übersicht, soweit lesbar. Fehlt einer, bleibt sein
+	 * Stundenziel leer — der Lauf geht weiter.
+	 */
+	stundenknoten?: Stundenknoten[];
 	/** Inhalt von `System/Templates/Unterricht/Lehrauftrag-Template.md`, falls vorhanden. */
 	lehrauftragVorlage?: string | null;
 }
@@ -91,8 +106,9 @@ const KNOTEN_FELD = "uplan_node_id";
  * an `baueStundennotiz` hochzählen.
  *
  * 2: `UArt`/`UStand` statt `UStatus`, Dateiname aus dem Datum, `## Ablauf`, `## Notizen`.
+ * 3: `Stundenziel` im Frontmatter.
  */
-const NOTIZFORMAT = 2;
+const NOTIZFORMAT = 3;
 
 interface Stundennotiz {
 	notiz: VorhandeneNotiz;
@@ -297,18 +313,20 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	const slots = [...overview.slots].sort(vergleicheSlots);
 	const pfade = stundenPfade(zuordnung, slots);
 	const zugeordnet = ordneNotizenZu(slots, stundennotizen);
+	const knoten = new Map((input.stundenknoten ?? []).map((k) => [k.id, k]));
 
 	for (const slot of slots) {
 		const unit = slot.ue_node_id ? einheiten.get(slot.ue_node_id) : undefined;
+		const stunde = slot.stunde_node_id ? knoten.get(slot.stunde_node_id) : undefined;
 		const pfad = pfade.get(slot.id) as string;
 		const bestehend = zugeordnet.get(slot.id);
-		const serverHash = hashObject(serverNutzlast(slot, unit));
+		const serverHash = hashObject(serverNutzlast(slot, unit, stunde));
 
 		if (!bestehend) {
 			ops.push({
 				art: "erstellen",
 				pfad,
-				inhalt: baueStundennotiz(zuordnung, slot, unit, serverHash, ""),
+				inhalt: baueStundennotiz(zuordnung, slot, unit, stunde, serverHash, ""),
 			});
 			continue;
 		}
@@ -343,7 +361,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		}
 
 		const eigenerTeil = extractOwnSection(splitNote(notiz.inhalt).body);
-		const neu = baueStundennotiz(zuordnung, slot, unit, serverHash, eigenerTeil);
+		const neu = baueStundennotiz(zuordnung, slot, unit, stunde, serverHash, eigenerTeil);
 		const uebernahme = slot.stunde_node_id && !felder[KNOTEN_FELD];
 
 		if (vaultGeaendert) {
@@ -479,7 +497,7 @@ function vergleicheSlots(a: SlotRead, b: SlotRead): number {
  * Genau die Felder, die in der Notiz landen — mehr darf nicht in den Hash. Dazu die
  * Formatversion: Ändert sich die Gestalt der Notiz, gilt jede als veraltet.
  */
-function serverNutzlast(slot: SlotRead, unit: UnitRead | undefined) {
+function serverNutzlast(slot: SlotRead, unit: UnitRead | undefined, stunde: Stundenknoten | undefined) {
 	return {
 		format: NOTIZFORMAT,
 		date: slot.date,
@@ -493,7 +511,16 @@ function serverNutzlast(slot: SlotRead, unit: UnitRead | undefined) {
 		ue_node_id: slot.ue_node_id,
 		stunde_node_id: slot.stunde_node_id,
 		ue_titel: unit?.title ?? null,
+		stundenziel: stundenziel(stunde),
 	};
+}
+
+/**
+ * Das Stundenziel, wie es in Notiz und Hash steht. Leer ist leer — ein Knoten mit
+ * Leerzeichen als Ziel soll nicht anders aussehen als einer ohne.
+ */
+function stundenziel(stunde: Stundenknoten | undefined): string | null {
+	return stunde?.stundenziel?.trim() || null;
 }
 
 /**
@@ -550,6 +577,7 @@ export function baueStundennotiz(
 	zuordnung: GruppenZuordnung,
 	slot: SlotRead,
 	unit: UnitRead | undefined,
+	stunde: Stundenknoten | undefined,
 	serverHash: string,
 	eigenerTeil: string,
 ): string {
@@ -560,6 +588,7 @@ export function baueStundennotiz(
 		Datum: slot.date,
 		UArt: kategorieZuUArt(slot.kategorie),
 		UStand: slotZuUStand(slot),
+		Stundenziel: stundenziel(stunde),
 		Inhalte: slot.thema ?? null,
 		UStunden: slot.periods,
 		uplan_slot_id: slot.id,

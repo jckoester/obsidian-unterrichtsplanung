@@ -96,6 +96,21 @@ export interface LessonRead {
 	updated_at: IsoDateTime;
 }
 
+/**
+ * `ContextNodeRead` (`backend/app/context/schemas.py`), soweit der Sync ihn liest. Für
+ * Stundenknoten stehen Stundenziel und Phasen in `metadata` — dasselbe Feld, das die
+ * Planung als `LessonRead.stundenziel` und `.phasen` ausgibt.
+ */
+export interface ContextNodeRead {
+	id: Uuid;
+	content_type: string | null;
+	title: string;
+	metadata: Record<string, unknown>;
+	status: string;
+	read_scope_group_id: number | null;
+	updated_at: IsoDateTime;
+}
+
 export interface OverviewRead {
 	slots: SlotRead[];
 	patterns: unknown[];

@@ -17,11 +17,37 @@ describe("GgdApiClient", () => {
 		await expect(new GgdApiClient(http).myGroups()).resolves.toEqual([]);
 	});
 
-	it("probt eine Gruppe über /planning", async () => {
-		const http = new FixtureHttpClient({ "GET /planning/groups/1/overview": overview });
+	it("probt eine Gruppe über /planning und die Stundenknoten über /context", async () => {
+		const http = new FixtureHttpClient({
+			"GET /planning/groups/1/overview": overview,
+			"GET /context/nodes": [],
+		});
 		await expect(new GgdApiClient(http).gruppenprobe(1)).resolves.toEqual({
 			schuljahr: "2026/27",
 			slots: 2,
+			stundenLesbar: true,
+		});
+	});
+
+	// Das Gatter sagt bei fehlendem Scope dasselbe wie bei gesperrtem Pfad. Der
+	// Verbindungstest soll den Fall trotzdem benennen, statt die Probe scheitern zu lassen.
+	it("meldet einen fehlenden context:read als nicht lesbare Stundenknoten", async () => {
+		const http = new FixtureHttpClient(
+			{ "GET /planning/groups/1/overview": overview, "GET /context/nodes": [] },
+			{ "GET /context/nodes": 403 },
+		);
+		const probe = await new GgdApiClient(http).gruppenprobe(1);
+		expect(probe.stundenLesbar).toBe(false);
+	});
+
+	it("holt die Stundenknoten mit Typ- und Gruppenfilter", async () => {
+		const http = new FixtureHttpClient({ "GET /context/nodes": [] });
+		await new GgdApiClient(http).stundenknoten(31);
+		expect(http.calls[0]?.query).toEqual({
+			content_type: "unterrichtsstunde",
+			group_id: 31,
+			limit: 500,
+			offset: 0,
 		});
 	});
 
