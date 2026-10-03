@@ -8,7 +8,26 @@
 
 export const FRONTMATTER_GRENZE = "---";
 
-/** Alles unterhalb dieser Überschrift gehört dem Vault. Der Sync fasst es nie an. */
+/**
+ * Die Grenze in einer Stundennotiz: Davor schreibt (und hasht) der Sync, dahinter gehört
+ * alles dem Vault und wird nie angefasst.
+ *
+ * Eine Grenze für beides, nicht zwei. Hinge der Hash an der ganzen Datei und der Erhalt an
+ * einer Überschrift, meldete eine Zeile im eigenen Abschnitt „vault-geändert" — und mit der
+ * nächsten Serveränderung entstand ein Konfliktblock ohne Konflikt.
+ *
+ * Ein Kommentar statt einer Überschrift: Er taucht in keiner Gliederung auf, und niemand
+ * benennt ihn beim Aufräumen um.
+ */
+export const REGION_ENDE = "<!-- uplan:ende -->";
+
+/** Die Markerzeile — nur als ganze Zeile, damit ein Zitat im Fließtext nicht zählt. */
+const REGION_ENDE_ZEILE = /^<!-- uplan:ende -->[ \t]*$/m;
+
+/**
+ * Überschrift, mit der der Vault-Teil einer neuen Stundennotiz beginnt. In Notizen ohne
+ * `REGION_ENDE` — Altbestand von vor dem Marker — ist sie zugleich noch die Grenze.
+ */
 export const MARKER_UEBERSCHRIFT = "## Eigene Notizen";
 
 export interface NoteParts {
@@ -83,13 +102,27 @@ function quoteIfNeeded(value: string): string {
 }
 
 /**
- * Erhält den Vault-eigenen Teil: alles ab der Marker-Überschrift.
- * Gibt es sie nicht, ist der Vault-Teil leer.
+ * Erhält den Vault-eigenen Teil: alles hinter `REGION_ENDE`.
+ *
+ * Altbestand ohne Marker: alles ab der Marker-Überschrift. Gibt es auch die nicht, ist der
+ * Vault-Teil leer.
  */
 export function extractOwnSection(body: string): string {
+	const treffer = REGION_ENDE_ZEILE.exec(body);
+	if (treffer) return body.slice(treffer.index + treffer[0].length).replace(/^\n+/, "");
 	const index = body.indexOf(MARKER_UEBERSCHRIFT);
 	if (index === -1) return "";
 	return body.slice(index);
+}
+
+/**
+ * Der Teil der Notiz, den der Sync verantwortet: Frontmatter und Rumpf bis vor
+ * `REGION_ENDE`. Fehlt der Marker, ist es die ganze Datei — so verhält sich Altbestand wie
+ * vor der Umstellung, bis der Sync ihn einmal neu geschrieben hat.
+ */
+export function plattformRegion(inhalt: string): string {
+	const treffer = REGION_ENDE_ZEILE.exec(inhalt);
+	return treffer ? inhalt.slice(0, treffer.index) : inhalt;
 }
 
 /**

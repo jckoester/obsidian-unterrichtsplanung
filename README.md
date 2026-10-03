@@ -64,7 +64,7 @@ Im Frontmatter jeder Notiz, kein separater Store:
 | `uplan_group_id` | Gruppe der Plattform |
 | `uplan_updated_at` | Serverstand beim letzten Sync (billige Vorprüfung) |
 | `uplan_server_hash` | Hash der zuletzt empfangenen Serverfassung → Server-Dirty |
-| `uplan_hash` | Hash des zuletzt geschriebenen Inhalts → Vault-Dirty |
+| `uplan_hash` | Hash der zuletzt geschriebenen Plattform-Region → Vault-Dirty |
 | `uplan_status` | `aktiv` / `archiviert` |
 
 **Warum der Slot ankert und nicht der Knoten:** Ein Slot existiert ab der
@@ -76,7 +76,9 @@ nennt; beide Felder stehen in der Notiz.
 ### Zusagen an den Vault
 
 - Es wird **nie** gelöscht. Verschwundenes bekommt `uplan_status: archiviert`.
-- Alles ab `## Eigene Notizen` gehört dem Vault und wird nie überschrieben.
+- Alles hinter `<!-- uplan:ende -->` gehört dem Vault, wird nie überschrieben und zählt
+  nicht als Änderung. In älteren Notizen ohne diesen Marker ist `## Eigene Notizen` die
+  Grenze.
 - Bei beidseitiger Änderung gewinnt die Plattform; die Vault-Fassung landet als Block in
   derselben Notiz.
 

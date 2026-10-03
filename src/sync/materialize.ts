@@ -2,7 +2,9 @@ import type { OverviewRead, SlotRead, UnitRead } from "../api/types";
 import { hashObject } from "./hash";
 import {
 	MARKER_UEBERSCHRIFT,
+	REGION_ENDE,
 	extractOwnSection,
+	plattformRegion,
 	readScalars,
 	renderFrontmatter,
 	splitNote,
@@ -246,7 +248,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		const felder = readScalars(splitNote(vorhandeneNotiz.inhalt).frontmatter);
 		const vaultGeaendert =
 			felder["uplan_hash"] !== undefined &&
-			felder["uplan_hash"] !== hashNotizInhalt(vorhandeneNotiz.inhalt);
+			felder["uplan_hash"] !== hashPlattformRegion(vorhandeneNotiz.inhalt);
 		const serverGeaendert = felder["uplan_server_hash"] !== serverHash;
 
 		if (!serverGeaendert && !vaultGeaendert && vorhandeneNotiz.pfad === pfad) {
@@ -464,6 +466,8 @@ export function baueStundennotiz(
 			? "_Entwurf liegt auf der Plattform — Phasen-Roundtrip ist Stufe 3._"
 			: "1.",
 		"",
+		REGION_ENDE,
+		"",
 		eigen,
 		"",
 	].join("\n");
@@ -479,15 +483,25 @@ export function baueStundennotiz(
  * niemand sie angefasst hat.
  */
 function setzeHash(inhalt: string): string {
-	return inhalt.replace(/^uplan_hash:.*$/m, `uplan_hash: ${hashNotizInhalt(inhalt)}`);
+	return inhalt.replace(/^uplan_hash:.*$/m, `uplan_hash: ${hashPlattformRegion(inhalt)}`);
 }
 
 /**
- * Der Vault-Hash über den Inhalt **ohne** die `uplan_hash`-Zeile — sonst hinge der Hash
- * von sich selbst ab.
+ * Der Vault-Hash: nur über die Plattform-Region, und dort **ohne** die `uplan_hash`-Zeile —
+ * sonst hinge der Hash von sich selbst ab.
+ *
+ * Nur die Region, weil hinter `REGION_ENDE` nichts liegt, was der Sync überschreiben
+ * könnte. Wer dort schreibt, hat für den Abgleich nichts geändert.
+ *
+ * Ohne Marker ist die Region die ganze Datei und der Hash derselbe wie vor der Umstellung:
+ * Eine unberührte Bestandsnotiz darf nicht plötzlich als vault-geändert gelten.
+ *
+ * Gehasht wird noch der Text. Sobald `## Ablauf` geparst wird (AP5 im Notizformat-Plan),
+ * tauscht diese Funktion ihr Innenleben gegen einen Hash über die Struktur — dann stört
+ * auch eine von Obsidian neu ausgerichtete Tabelle nicht mehr.
  */
-export function hashNotizInhalt(inhalt: string): string {
-	const ohne = inhalt.replace(/^uplan_hash:.*$/m, "uplan_hash:");
+export function hashPlattformRegion(inhalt: string): string {
+	const ohne = plattformRegion(inhalt).replace(/^uplan_hash:.*$/m, "uplan_hash:");
 	return hashObject(ohne);
 }
 

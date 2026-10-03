@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import overview from "../fixtures/overview-group1.json";
 import type { OverviewRead } from "../src/api/types";
-import { MARKER_UEBERSCHRIFT } from "../src/sync/frontmatter";
+import { MARKER_UEBERSCHRIFT, REGION_ENDE } from "../src/sync/frontmatter";
+import { hashObject } from "../src/sync/hash";
 import {
 	materialize,
 	STANDARD_DATEIMUSTER,
@@ -44,14 +45,16 @@ function stunde(vorhanden: { pfad: string; inhalt: string }[], nr: number) {
 	return treffer;
 }
 
-/** Erster Lauf, dann beidseitige Änderung — der Ausgangspunkt beider Konflikt-Tests. */
+/**
+ * Erster Lauf, dann beidseitige Änderung — der Ausgangspunkt beider Konflikt-Tests.
+ *
+ * Die Vault-Änderung steht vor `REGION_ENDE`. Eine Zeile im eigenen Abschnitt war früher
+ * hier der Auslöser — genau der Konflikt ohne Konflikt, den die Hash-Region abschafft.
+ */
 function konfliktLauf() {
 	const vorhanden = alsVorhanden(ersterLauf());
 	const eins = stunde(vorhanden, 1);
-	eins.inhalt = eins.inhalt.replace(
-		MARKER_UEBERSCHRIFT,
-		`${MARKER_UEBERSCHRIFT}\nMaterial liegt im Schrank.`,
-	);
+	eins.inhalt = eins.inhalt.replace("## Verlauf", "## Verlauf\n1. Von Hand ergänzt");
 	const serverstand = structuredClone(stand);
 	serverstand.slots[0]!.thema = "Getriebe, zweitens";
 	const konflikt = materialize({ zuordnung, overview: serverstand, vorhanden }).ops.find(
@@ -59,6 +62,21 @@ function konfliktLauf() {
 	);
 	if (!konflikt) throw new Error("kein Konflikt im Plan");
 	return { konflikt, serverstand, vorhanden };
+}
+
+/**
+ * Eine Stundennotiz, wie Stufe 1 sie vor `REGION_ENDE` schrieb: ohne Marker, der Hash
+ * über die ganze Datei. Die Formel steht hier absichtlich noch einmal ausgeschrieben —
+ * sie ist der Vertrag, den der neue Hash für Altbestand halten muss.
+ */
+function alsAltbestand(inhalt: string): string {
+	const ohneMarker = inhalt.replace(`${REGION_ENDE}\n\n`, "");
+	const alterHash = hashObject(ohneMarker.replace(/^uplan_hash:.*$/m, "uplan_hash:"));
+	return ohneMarker.replace(/^uplan_hash:.*$/m, `uplan_hash: ${alterHash}`);
+}
+
+function mitEigenerZeile(inhalt: string): string {
+	return inhalt.replace(MARKER_UEBERSCHRIFT, `${MARKER_UEBERSCHRIFT}\nMaterial liegt im Schrank.`);
 }
 
 describe("materialize", () => {
@@ -103,17 +121,66 @@ describe("materialize", () => {
 		expect(konflikt?.inhalt).toContain("Sync-Konflikt");
 	});
 
-	it("bewahrt den vault-eigenen Abschnitt bei Aktualisierung", () => {
+	// Bis zur Hash-Region wurde daraus ein Konflikt: Der Hash lief über die ganze Datei, und
+	// der eigene Abschnitt stand danach ein zweites Mal im Konfliktblock.
+	it("bewahrt den vault-eigenen Abschnitt bei Aktualisierung — ohne Konflikt", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		stunde(vorhanden, 1).inhalt = stunde(vorhanden, 1).inhalt.replace(
-			MARKER_UEBERSCHRIFT,
-			`${MARKER_UEBERSCHRIFT}\nMaterial liegt im Schrank.`,
-		);
+		stunde(vorhanden, 1).inhalt = mitEigenerZeile(stunde(vorhanden, 1).inhalt);
 		const geaendert = structuredClone(stand);
 		geaendert.slots[0]!.thema = "Getriebe, Teil 2";
 		const op = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find((o) =>
 			o.pfad.includes("Stunde 1"),
 		);
+		expect(op?.art).toBe("aktualisieren");
+		expect(op?.inhalt?.split("Material liegt im Schrank.")).toHaveLength(2);
+	});
+
+	it("hält den eigenen Abschnitt nicht für eine Vault-Änderung", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		stunde(vorhanden, 1).inhalt = mitEigenerZeile(stunde(vorhanden, 1).inhalt);
+		const op = materialize({ zuordnung, overview: stand, vorhanden }).ops.find((o) =>
+			o.pfad.includes("Stunde 1"),
+		);
+		expect(op?.art).toBe("unveraendert");
+		expect(op?.grund).toBeUndefined();
+	});
+
+	it("setzt die Grenze vor den eigenen Abschnitt", () => {
+		const inhalt = stunde(alsVorhanden(ersterLauf()), 1).inhalt;
+		expect(inhalt.indexOf(REGION_ENDE)).toBeGreaterThan(inhalt.indexOf("## Verlauf"));
+		expect(inhalt.indexOf(REGION_ENDE)).toBeLessThan(inhalt.indexOf(MARKER_UEBERSCHRIFT));
+	});
+
+	it("lässt eine Bestandsnotiz ohne Marker in Ruhe, solange sich nichts ändert", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		stunde(vorhanden, 1).inhalt = alsAltbestand(stunde(vorhanden, 1).inhalt);
+		const op = materialize({ zuordnung, overview: stand, vorhanden }).ops.find((o) =>
+			o.pfad.includes("Stunde 1"),
+		);
+		expect(op?.art).toBe("unveraendert");
+		expect(op?.grund).toBeUndefined();
+	});
+
+	it("gibt einer Bestandsnotiz beim Aktualisieren den Marker — danach gilt die Region", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		const eins = stunde(vorhanden, 1);
+		eins.inhalt = alsAltbestand(eins.inhalt);
+
+		const geaendert = structuredClone(stand);
+		geaendert.slots[0]!.thema = "Getriebe, Teil 2";
+		const umgestellt = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
+			(o) => o.pfad === eins.pfad,
+		);
+		expect(umgestellt?.art).toBe("aktualisieren");
+		expect(umgestellt?.inhalt).toContain(REGION_ENDE);
+
+		eins.inhalt = mitEigenerZeile(umgestellt?.inhalt as string);
+		const nochmal = structuredClone(geaendert);
+		nochmal.slots[0]!.thema = "Getriebe, Teil 3";
+		const op = materialize({ zuordnung, overview: nochmal, vorhanden }).ops.find(
+			(o) => o.pfad === eins.pfad,
+		);
+		expect(op?.art).toBe("aktualisieren");
 		expect(op?.inhalt).toContain("Material liegt im Schrank.");
 	});
 
@@ -202,7 +269,13 @@ describe("materialize", () => {
 		const { konflikt, serverstand, vorhanden } = konfliktLauf();
 		const danach = vorhanden.map((v) =>
 			v.pfad === konflikt.pfad
-				? { pfad: v.pfad, inhalt: `${konflikt.inhalt as string}\nUnd noch etwas.\n` }
+				? {
+						pfad: v.pfad,
+						inhalt: (konflikt.inhalt as string).replace(
+							"## Verlauf",
+							"## Verlauf\n1. Und noch etwas",
+						),
+					}
 				: v,
 		);
 		const nochmal = structuredClone(serverstand);
