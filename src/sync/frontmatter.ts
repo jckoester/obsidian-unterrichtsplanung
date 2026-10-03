@@ -1,7 +1,7 @@
 /**
  * Frontmatter — lesen tolerant, schreiben streng.
  *
- * Gelesen werden nur Skalare (das reicht für die `ggd_*`-Felder); geschrieben wird
+ * Gelesen werden nur Skalare (das reicht für die `uplan_*`-Felder); geschrieben wird
  * ein vollständiger, von uns erzeugter Block. Ein YAML-Parser ist dafür nicht nötig
  * und wäre im Bundle teurer als der Nutzen.
  */

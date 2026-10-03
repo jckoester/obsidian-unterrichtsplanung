@@ -497,7 +497,7 @@ function setzeStatusArchiviert(inhalt: string): string {
 		mitStatus = inhalt.replace(/^uplan_status:.*$/m, "uplan_status: archiviert");
 	} else {
 		const { frontmatter, body } = splitNote(inhalt);
-		mitStatus = `---\n${frontmatter}\nggd_status: archiviert\n---\n${body}`;
+		mitStatus = `---\n${frontmatter}\nuplan_status: archiviert\n---\n${body}`;
 	}
 	// Der Grabstein ist eine Änderung wie jede andere — ohne neuen Hash hielte der
 	// nächste Lauf die Notiz für vault-geändert.

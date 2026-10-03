@@ -148,6 +148,30 @@ describe("materialize", () => {
 		expect(freigebend).toBeLessThan(aufrueckend);
 	});
 
+	// Der Rückfallzweig für Notizen ohne `uplan_status`-Zeile schrieb nach der Umbenennung
+	// noch `ggd_status` — die Notiz galt danach nie als archiviert und bekam bei jedem Lauf
+	// eine weitere Statuszeile.
+	it("archiviert auch eine Notiz ohne Statuszeile genau einmal", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		const zwei = stunde(vorhanden, 2);
+		zwei.inhalt = zwei.inhalt.replace(/^uplan_status:.*\n/m, "");
+		const geschrumpft = structuredClone(stand);
+		geschrumpft.slots = [geschrumpft.slots[0]!];
+
+		const archiv = materialize({ zuordnung, overview: geschrumpft, vorhanden }).ops.find(
+			(o) => o.art === "archivieren",
+		);
+		expect(archiv?.inhalt).toContain("uplan_status: archiviert");
+		expect(archiv?.inhalt).not.toContain("ggd_");
+
+		const danach = [
+			...vorhanden.filter((v) => v !== zwei),
+			{ pfad: archiv?.pfad as string, inhalt: archiv?.inhalt as string },
+		];
+		const zweit = materialize({ zuordnung, overview: geschrumpft, vorhanden: danach });
+		expect(zweit.ops.some((o) => o.art === "archivieren" || o.art === "umbenennen")).toBe(false);
+	});
+
 	it("archiviert eine Einheit, die auf der Plattform verschwindet", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
 		const ohneEinheit = structuredClone(stand);
