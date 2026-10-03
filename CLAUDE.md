@@ -39,7 +39,7 @@ npm run build                # tsc --noEmit + Produktionsbundle
 npm test                     # vitest gegen Fixtures — ohne Obsidian, ohne Server, ohne Token
 npm run typecheck            # tsc --noEmit allein
 
-bash scripts/seed-testvault.sh   # Testvault aus dem PKM-Vault befüllen (read-only Kopie)
+bash scripts/seed-testvault.sh   # Testvault befüllen: PKM-Bestand (read-only Kopie), darüber vault/ aus dem Repo
 bash scripts/link-testvault.sh   # Symlink ins Plugin-Verzeichnis + .hotreload
 ```
 
@@ -52,6 +52,12 @@ Der Testvault liegt unter `~/Documents/1 Projekte/Testvault-Unterricht` und bind
 **`data.json` ist gitignored.** Obsidian schreibt die Plugin-Einstellungen in den Pluginordner — und der ist über den Symlink dieses Repo. Darin steht der Personal Access Token im Klartext.
 
 **Der Produktivvault ist kein Entwicklungsort.** Dort steht `.obsidian/plugins` nicht in der `.gitignore` (der Gitdir liegt separat unter `~/Documents/.PKM.git`); obsidian-git würde `node_modules` und jeden Zwischenstand committen. Sobald das Plugin dort über BRAT installiert ist, gehört `.obsidian/plugins/unterrichtsplanung-sync/data.json` in die Vault-`.gitignore`.
+
+**Auch Bases und Templates im PKM-Vault bleiben unangetastet** — Jans Regel: Entwickelt wird nur im Testvault, alles andere ist eine Migration, sobald das Plugin in den PKM-Vault übernommen wird. Was das Plugin im Vault voraussetzt (`Unterricht-Cockpit.base`, `Unterrichtsstunden.base`, `UStunden-Katalog.base`, `Lehrauftrag-Template.md`), liegt deshalb in `vault/` im Repo, in Vault-Pfaden; `seed-testvault.sh` legt es über die PKM-Kopie. Wer eine Base ändert, ändert sie dort. Am 03.10.2026 waren die drei Bases und das Template kurz direkt im PKM-Vault geändert; obsidian-git hatte das schon committet (`5e99ff39`), die Dateien sind seitdem wieder auf dem Stand davor.
+
+**PKM-Git nur mit absoluten Pfaden ansprechen:** `git --git-dir="$HOME/Documents/.PKM.git" --work-tree="$HOME/Documents/PKM" …`. Mit relativem `--git-dir` wechselt git in den Arbeitsbaum, findet die Pakete nicht mehr und meldet „packfile … index unavailable" — das sieht nach einem kaputten Repo aus, ist aber nur der Pfad.
+
+**Das Seed-Skript kopiert den PKM-Ordner des Lehrauftrags** (`NwT 9`) mit — samt `NwT 9.md`. Nach einer Neuspiegelung im Testvault überschreibt ein erneuter Seed also die frisch angelegte Lehrauftragsnotiz.
 
 **Das Scope-Gatter der Plattform ist Deny-by-default.** Siehe unten — ein neuer Endpunkt ist erst erreichbar, wenn sein Pfad dort steht.
 
@@ -129,7 +135,7 @@ Im Frontmatter jeder Notiz, kein separater Store:
 
 **Anker: erst der Stundenknoten, dann der Slot** (`ordneNotizenZu`, Plan-Notizformat Entscheidung 2). Der Swap der Plattform tauscht Stundenknoten zwischen Slots, die ihr Datum behalten — am Slot verankert bliebe die Vorbereitung beim falschen Termin. Deshalb holt sich zuerst jeder Knoten seine Notiz, wo immer sie liegt; danach bekommen die übrigen Slots ihre Termin-Notiz über `uplan_slot_id`. Nur über den Knoten ginge es nicht: Ein Slot existiert ab der Slot-Generierung, `stunde_node_id` erst mit dem ersten Entwurf — die Platzhalter-Notiz übernimmt dann den Knoten, statt ein Duplikat zu bekommen. Eine Notiz, deren Knoten noch im Plan steht, wird nie über ihr (veraltetes) Slot-Feld vergeben.
 
-**Grenze dieser Regel:** Platzhalter hängen an der Slot-ID. `POST …/slots/generate` mit `regenerate=True` löscht die Muster-Slots eines Halbjahrs und legt sie neu an — Notizen mit Knoten folgen ihrem Knoten, Platzhalter werden archiviert und neu angelegt.
+**Grenze dieser Regel:** Platzhalter hängen an der Slot-ID. `POST …/slots/generate` mit `regenerate=True` löscht die Muster-Slots eines Halbjahrs und legt sie neu an — Notizen mit Knoten folgen ihrem Knoten, Platzhalter werden archiviert und neu angelegt. Von Jan am 03.10.2026 so akzeptiert: Ein Neuaufbau kommt zum Halbjahreswechsel und bei Stundenplanänderungen vor, etwa dreimal im Jahr.
 
 **Die Formatversion steht im Server-Hash** (`NOTIZFORMAT`). Wer `baueStundennotiz` ändert, zählt sie hoch — sonst bekämen nur die Notizen das neue Format, deren Termin sich gerade zufällig geändert hat.
 
@@ -148,11 +154,11 @@ Bei beidseitiger Änderung gewinnt die Plattform; die Vault-Fassung wandert als 
 
 Das Notizformat folgt dem Bestand, nicht eigenem Geschmack — Bases und Dataview-Queries im Vault hängen daran.
 
-- **Stundennotiz:** `NwT 9/Unterrichtsstunden/NwT 9 2026-09-15.md` — bei zwei Terminen am selben Tag beide mit `(3. Std.)`. Frontmatter `Kategorien: [[UStunden]]`, `Lehrauftrag`, `UEinheit`, `Datum`, `UArt`, `UStand`, `Inhalte`, `UStunden` (Doppelstunde = 2). Rumpf: journal-header-Callout mit Datum und einer DataviewJS-Navigation (zur Anzeigezeit berechnet, der Sync schreibt keine Nachbarlinks), `## Hinweise` (nur mit `slot.note`), `## Ablauf`, Marker, `## Notizen`. Kein Meta-Bind-Feld — der Status gehört der Plattform.
+- **Stundennotiz:** `NwT 9/Unterrichtsstunden/NwT 9 2026-09-15.md` — bei zwei Terminen am selben Tag beide mit `(3. Std.)`. Frontmatter `Kategorien: [[UStunden]]`, `Lehrauftrag`, `UEinheit`, `Datum`, `UArt`, `UStand`, `Inhalte`, `UStunden` (Doppelstunde = 2). Rumpf: journal-header-Callout mit Datum und einer Inline-DataviewJS-Navigation (zur Anzeigezeit berechnet, der Sync schreibt keine Nachbarlinks; braucht „Enable Inline JavaScript Queries" in Dataview — im PKM-Vault an, in den Testvault überträgt der Seed den Schalter), `## Hinweise` (nur mit `slot.note`), `## Ablauf`, Marker, `## Notizen`. Kein Meta-Bind-Feld — der Status gehört der Plattform.
 - **UE-Notiz:** `NwT 9/UE1 - Titel/UE1 - Titel.md` (Ordnernotiz; der Ordner ist die Materialsammlung), `Kategorien: [[UEinheiten]]`, `Stunden` = Zahl der zugewiesenen Slots.
 - **Lehrauftragsnotiz:** `NwT 9/NwT 9.md`, Rumpf aus `System/Templates/Unterricht/Lehrauftrag-Template.md` — diese Vorlage enthält keine Templater-Syntax und ist deshalb direkt verwendbar. `UEinheit-Template.md` dagegen rechnet in Templater-Blöcken und verschiebt sich selbst; ihr Ergebnis baut `notizen.ts` nach.
 - **`UArt` und `UStand` statt `UStatus`.** `UArt` ist `kategorie` 1:1 (`Unterricht`, `Entfall`, `Prüfung`, `Puffer`, `Vertretung`; eine unbekannte Kategorie erscheint mit ihrem Rohwert). `UStand` ist abgeleitet: `Gehalten` (`nachbereitet_at`) vor `Geplant` (`hat_phasen`) vor `Platzhalter`; `Skizze` kommt mit AP4/AP6. Beide gehören der Plattform — es gibt keinen Status-Rückkanal. Die Abbildung steht allein in `src/sync/status.ts`. Das Archiv 2025/26 trägt weiter `UStatus`; `UStunden-Katalog.base` zeigt deshalb beide.
-- **Archivierte Stundennotizen** (`uplan_status: archiviert`) blenden `Unterrichtsstunden.base`, `Unterricht-Cockpit.base` und die Statistik im Lehrauftrag-Template aus.
+- **Archivierte Stundennotizen** (`uplan_status: archiviert`) blenden `Unterrichtsstunden.base`, `Unterricht-Cockpit.base` und die Statistik im Lehrauftrag-Template aus — in den Fassungen unter `vault/`. Der PKM-Vault hat noch die alten.
 - **Fach und Stufe kommen aus den Einstellungen, nicht von der Plattform.** Im Vault steht mal `[[Chemie]]`, mal `Chemie`, mal `CH` — das ist Vault-Konvention. Die Stufe lässt sich über `GET /planning/groups/{id}/curriculum-chapters` (`grade`) vorbefüllen.
 - **Der Lehrauftragsname wird aus dem Ordnernamen abgeleitet** (`lehrauftragName()`); das Einstellungsfeld ist nur ein Überschreibwert.
 

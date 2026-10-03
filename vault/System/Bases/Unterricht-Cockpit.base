@@ -1,0 +1,68 @@
+model:
+  version: 1
+  kind: Table
+  columns: []
+pluginVersion: 1.0.0
+filters:
+  and:
+    - Kategorien.contains(link("UStunden"))
+    - '!file.path.startsWith("System")'
+    - uplan_status != "archiviert"
+formulas:
+  Tag: if(Datum, date(Datum).format("YYYY-MM-DD, ddd"), "")
+properties:
+  formula.Tag:
+    displayName: Datum
+  UArt:
+    displayName: Art
+  UStand:
+    displayName: Stand
+views:
+  - type: table
+    name: Heute
+    filters:
+      and:
+        - if(Datum, date(Datum) == today(), false)
+    order:
+      - file.name
+      - Lehrauftrag
+      - UArt
+      - UStand
+      - Inhalte
+    sort:
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: Diese Woche
+    filters:
+      and:
+        - if(Datum, date(Datum) >= today() && date(Datum) < today() + "7d", false)
+    groupBy:
+      property: formula.Tag
+      direction: ASC
+    order:
+      - file.name
+      - Lehrauftrag
+      - UArt
+      - UStand
+      - Inhalte
+    sort:
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: Unvorbereitet
+    filters:
+      and:
+        - if(Datum, date(Datum) >= today(), false)
+        - UStand == "Platzhalter"
+        - UArt != "Entfall"
+    order:
+      - file.name
+      - formula.Tag
+      - Lehrauftrag
+      - UArt
+      - UStand
+      - Inhalte
+    sort:
+      - property: Datum
+        direction: ASC

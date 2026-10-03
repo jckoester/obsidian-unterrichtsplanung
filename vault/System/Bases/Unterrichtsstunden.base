@@ -1,0 +1,101 @@
+filters:
+  and:
+    - Kategorien.contains(link("UStunden"))
+    - '!file.path.startsWith("System")'
+    - '!file.path.startsWith("Archiv")'
+    - uplan_status != "archiviert"
+properties:
+  file.name:
+    displayName: Titel
+views:
+  - type: table
+    name: Alle
+    order:
+      - file.name
+      - Datum
+      - UArt
+      - UStand
+      - UEinheit
+      - Inhalte
+      - Lehrauftrag
+    sort:
+      - property: Datum
+        direction: ASC
+      - property: file.name
+        direction: ASC
+    columnSize:
+      note.UEinheit: 124
+      note.Inhalte: 471
+  - type: table
+    name: Stundenübersicht
+    filters:
+      and:
+        - list(Lehrauftrag).contains(this.Lehrauftrag)
+    order:
+      - file.name
+      - Datum
+      - UArt
+      - UStand
+      - UEinheit
+      - Inhalte
+    sort:
+      - property: Datum
+        direction: ASC
+      - property: file.name
+        direction: ASC
+    columnSize:
+      note.UEinheit: 124
+      note.Inhalte: 471
+  - type: table
+    name: Einheit
+    filters:
+      and:
+        - list(Lehrauftrag).contains(this.Lehrauftrag)
+        - list(UEinheit).contains(this)
+    order:
+      - file.name
+      - Datum
+      - UArt
+      - UStand
+      - Inhalte
+    sort:
+      - property: Datum
+        direction: ASC
+      - property: file.name
+        direction: ASC
+    columnSize:
+      file.name: 131
+      note.Inhalte: 471
+  - type: table
+    name: heute
+    filters:
+      and:
+        - Datum == today()
+    order:
+      - file.name
+      - Lehrauftrag
+      - UArt
+      - UStand
+      - Inhalte
+  - type: table
+    name: Woche
+    filters:
+      and:
+        - date(Datum).format("gggg-ww") == today().format("gggg-ww")
+    order:
+      - file.name
+      - Datum
+    sort:
+      - property: Datum
+        direction: ASC
+  - type: table
+    name: nächste Woche
+    filters:
+      and:
+        - date(Datum).format("gggg-ww") == (today() + "7d").format("gggg-ww")
+    order:
+      - file.name
+      - Datum
+    sort:
+      - property: Datum
+        direction: ASC

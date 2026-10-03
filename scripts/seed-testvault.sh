@@ -3,11 +3,16 @@
 #
 # Einbahnstraße: liest aus dem Produktivvault, schreibt nur in den Testvault.
 # Mehrfach aufrufbar — überschreibt die kopierten Dateien, lässt Testnotizen stehen.
+#
+# Zwei Schichten: erst der Bestand aus dem PKM-Vault, darüber `vault/` aus diesem Repo —
+# die Vault-Dateien in dem Stand, den das Plugin gerade voraussetzt. Entwickelt wird nur
+# im Testvault; in den PKM-Vault kommt `vault/` erst mit der Migration.
 set -euo pipefail
 
 QUELLE="${QUELLE:-$HOME/Documents/PKM}"
 ZIEL="${ZIEL:-$HOME/Documents/1 Projekte/Testvault-Unterricht}"
 LEHRAUFTRAG="${LEHRAUFTRAG:-NwT 9}"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ ! -d "$QUELLE" ]]; then
 	echo "Produktivvault nicht gefunden: $QUELLE" >&2
@@ -33,6 +38,9 @@ cp -Rf "$QUELLE/System/Templates/Unterricht/." "$ZIEL/System/Templates/Unterrich
 cp -f "$QUELLE/Bereiche/11 Unterricht/Unterricht-Cockpit.md" "$ZIEL/Bereiche/11 Unterricht/" 2>/dev/null || true
 cp -Rf "$QUELLE/Bereiche/11 Unterricht/$LEHRAUFTRAG" "$ZIEL/Bereiche/11 Unterricht/" 2>/dev/null || true
 
+# Die zweite Schicht: Bases und Template im Entwicklungsstand. Danach, damit sie gewinnt.
+cp -Rf "$REPO/vault/." "$ZIEL/"
+
 # Plugins, von denen das Notizformat abhängt (Bases sind Kernfunktion, brauchen nichts).
 for plugin in dataview obsidian-meta-bind-plugin templater-obsidian notebook-navigator obsidian42-brat; do
 	if [[ -d "$QUELLE/.obsidian/plugins/$plugin" ]]; then
@@ -56,6 +64,22 @@ gewuenscht = [
 vorhanden = json.loads(pfad.read_text()) if pfad.exists() else []
 pfad.write_text(json.dumps(sorted(set(vorhanden) | set(gewuenscht)), indent=2) + "\n")
 print(f"community-plugins.json: {len(gewuenscht)} Einträge")
+PY
+
+# Die Navigationszeile der Stundennotiz ist Inline-DataviewJS. Ohne diese Schalter zeigt der
+# Testvault „(disabled; enable in settings)", während sie im PKM-Vault läuft. Übernommen
+# werden nur die Schalter, nicht die ganze data.json (siehe oben).
+python3 - "$QUELLE" "$ZIEL" <<'PY'
+import json, pathlib, sys
+quelle, ziel = (pathlib.Path(p) / ".obsidian/plugins/dataview/data.json" for p in sys.argv[1:3])
+if not quelle.exists():
+    sys.exit(0)
+schalter = ("enableDataviewJs", "enableInlineDataviewJs")
+werte = {k: v for k, v in json.loads(quelle.read_text()).items() if k in schalter}
+daten = json.loads(ziel.read_text()) if ziel.exists() else {}
+daten.update(werte)
+ziel.write_text(json.dumps(daten, indent=2) + "\n")
+print(f"Dataview: {werte}")
 PY
 
 echo "Fertig. Vault in Obsidian öffnen: $ZIEL"

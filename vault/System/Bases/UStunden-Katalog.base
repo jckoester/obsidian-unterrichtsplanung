@@ -1,0 +1,61 @@
+model:
+  version: 1
+  kind: Table
+  columns: []
+pluginVersion: 1.0.0
+filters:
+  and:
+    - Kategorien.contains(link("UStunden"))
+    - '!file.path.startsWith("System")'
+formulas:
+  Ablage: if(file.path.startsWith("Archiv"), "🗄️ Archiv", "🟢 aktiv")
+properties:
+  letzteDurchführung:
+    displayName: letzte Durchführung
+  formula.Ablage:
+    displayName: Ablage
+views:
+  - type: table
+    name: Alle
+    groupBy:
+      property: Fach
+      direction: ASC
+    order:
+      - file.name
+      - Stufe
+      - Lehrauftrag
+      - letzteDurchführung
+      - UStatus
+      - UArt
+      - UStand
+    sort:
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: Fach
+    filters:
+      and:
+        - list(Fach).contains(this.Fach)
+    order:
+      - file.name
+      - Stufe
+      - Lehrauftrag
+      - letzteDurchführung
+      - formula.Ablage
+    sort:
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: Archiv
+    filters:
+      and:
+        - file.path.startsWith("Archiv")
+    order:
+      - file.name
+      - Fach
+      - Stufe
+      - Lehrauftrag
+      - letzteDurchführung
+    sort:
+      - property: file.name
+        direction: ASC
