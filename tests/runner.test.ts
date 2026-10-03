@@ -4,7 +4,7 @@ import gruppen from "../fixtures/groups-me.json";
 import type { OverviewRead, SlotRead } from "../src/api/types";
 import { GgdApiClient } from "../src/api/client";
 import { FixtureHttpClient } from "../src/api/http";
-import { STANDARD_DATEIMUSTER, type GruppenZuordnung } from "../src/sync/materialize";
+import type { GruppenZuordnung } from "../src/sync/materialize";
 import { syncGruppe } from "../src/sync/runner";
 import { InMemoryVaultAdapter } from "../src/sync/vault-adapter";
 
@@ -15,7 +15,6 @@ const zuordnung: GruppenZuordnung = {
 	stufe: 9,
 	ordner: "Bereiche/11 Unterricht/NwT 9",
 	stundenOrdner: "Unterrichtsstunden",
-	dateiMuster: STANDARD_DATEIMUSTER,
 };
 
 const stand = overview as unknown as OverviewRead;
@@ -116,46 +115,67 @@ describe("syncGruppe", () => {
 
 	it("überschreibt keine vault-eigene Datei, sondern meldet sie", async () => {
 		const vault = new InMemoryVaultAdapter();
-		const besetzt = `${STUNDEN}/NwT 9 Stunde 1.md`;
+		const besetzt = `${STUNDEN}/NwT 9 2026-09-15.md`;
 		await vault.write(besetzt, "# Von Hand angelegt\n");
 
 		const ergebnis = await syncGruppe(api(), vault, zuordnung, false);
 
-		expect(ergebnis.fehler.some((f) => f.includes("Stunde 1"))).toBe(true);
+		expect(ergebnis.fehler.some((f) => f.includes("2026-09-15"))).toBe(true);
 		expect(await vault.read(besetzt)).toBe("# Von Hand angelegt\n");
 	});
 
 	// Der Alltagsfall in einem Stück: ein Schuljahr in klein, von Hand ergänzte Notizen,
-	// und eine Änderung, die alles auf einmal tut — streichen, einfügen, verschieben.
+	// und eine Änderung, die alles auf einmal tut — streichen, einfügen, verschieben, und
+	// ein zweiter Termin an einem Tag, der schon einen hat.
 	it("übersteht eine durchmischte Änderung und beruhigt sich danach", async () => {
 		const vault = new InMemoryVaultAdapter();
 		await syncGruppe(apiMit(schuljahr(12)), vault, zuordnung, false);
 		expect(slotIds(vault).size).toBe(12);
 
-		for (const nr of [3, 7, 11]) {
-			const pfad = `${STUNDEN}/NwT 9 Stunde ${nr}.md`;
+		for (const tag of ["03", "07", "11"]) {
+			const pfad = `${STUNDEN}/NwT 9 2026-10-${tag}.md`;
 			const eigen = (await vault.read(pfad)).replace(
-				"## Eigene Notizen",
-				"## Eigene Notizen\nMaterial liegt im Schrank.",
+				"## Notizen",
+				"## Notizen\nMaterial liegt im Schrank.",
 			);
 			await vault.write(pfad, eigen);
 		}
 
 		const geaendert = schuljahr(12);
 		geaendert.slots = geaendert.slots.filter((s) => s.id !== "slot-4" && s.id !== "slot-9");
-		geaendert.slots.push(baueSlot(13, 1)); // rutscht ganz nach vorne
-		geaendert.slots.push(baueSlot(14, 6)); // und eine in die Mitte
+		geaendert.slots.push({ ...baueSlot(13, 1), date: "2026-09-30" }); // ganz nach vorne
+		geaendert.slots.push({ ...baueSlot(14, 6), start_period: 5 }); // zweiter Termin am 6.
 		const verschoben = geaendert.slots.find((s) => s.id === "slot-12");
-		if (verschoben) verschoben.date = "2026-10-02";
+		if (verschoben) verschoben.date = "2026-10-04"; // auf den Tag der gestrichenen Stunde 4
 		for (const s of geaendert.slots) s.thema = `${s.thema}, überarbeitet`;
 
 		const ergebnis = await syncGruppe(apiMit(geaendert), vault, zuordnung, false);
 		expect(ergebnis.fehler).toHaveLength(0);
 		// Zwölf aktive und zwei archivierte Notizen — keine ist verloren gegangen.
 		expect(slotIds(vault).size).toBe(14);
+		expect(vault.files.has(`${STUNDEN}/NwT 9 2026-10-06 (5. Std.).md`)).toBe(true);
+		// Eigene Zeilen sind kein Konflikt mehr — sie stehen genau einmal da.
+		const sieben = await vault.read(`${STUNDEN}/NwT 9 2026-10-07.md`);
+		expect(sieben.split("Material liegt im Schrank.")).toHaveLength(2);
+		expect(sieben).not.toContain("Sync-Konflikt");
 
 		const dritt = await syncGruppe(apiMit(geaendert), vault, zuordnung, false);
 		expect(dritt.plan.ops.every((o) => o.art === "unveraendert")).toBe(true);
+	});
+
+	it("holt eine archivierte Notiz zurück, wenn ihr Termin wiederkommt", async () => {
+		const vault = new InMemoryVaultAdapter();
+		await syncGruppe(api(), vault, zuordnung, false);
+
+		const ohneZweite = structuredClone(stand);
+		ohneZweite.slots = [ohneZweite.slots[0]!];
+		await syncGruppe(apiMit(ohneZweite), vault, zuordnung, false);
+		expect(vault.files.has(`${STUNDEN}/NwT 9 2026-09-22 (archiviert).md`)).toBe(true);
+
+		const ergebnis = await syncGruppe(api(), vault, zuordnung, false);
+		expect(ergebnis.fehler).toHaveLength(0);
+		expect(vault.files.has(`${STUNDEN}/NwT 9 2026-09-22 (archiviert).md`)).toBe(false);
+		expect(await vault.read(`${STUNDEN}/NwT 9 2026-09-22.md`)).toContain("uplan_status: aktiv");
 	});
 
 	it("läuft zweimal hintereinander ohne Änderung", async () => {

@@ -1,5 +1,4 @@
 import type { GruppenZuordnung } from "./sync/materialize";
-import { STANDARD_DATEIMUSTER } from "./sync/materialize";
 
 export interface UpsSettings {
 	basisUrl: string;
@@ -35,6 +34,5 @@ export function leereZuordnung(groupId = 0): GruppenZuordnung {
 		// plausibler falscher Wert.
 		ordner: "",
 		stundenOrdner: "Unterrichtsstunden",
-		dateiMuster: STANDARD_DATEIMUSTER,
 	};
 }

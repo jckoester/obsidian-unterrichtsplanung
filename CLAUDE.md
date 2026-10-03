@@ -27,8 +27,7 @@ Plan und Projektstand liegen im Vault unter `PKM/Projekte/Unterrichtsplanung-Syn
 
 - **Stufe 1 (Pull-Spiegel) fertig und im Alltag getestet**: Lehrauftrags-, UE- und Stundennotizen, Probelauf, Archivieren, Konfliktblöcke.
 - **Stufe 2 folgt `Plan-Notizformat.md`** (bestätigt am 03.10.2026), nicht mehr dem älteren Rückkanal für `kategorie`/`thema`/`note`. Reihenfolge: AP0 (Reste der `ggd_`-Umbenennung) und AP1 (Hash-Regionen) → AP3 + AP2 zusammen (`UArt`/`UStand`, Anker am Stundenknoten, Dateiname aus dem Datum) → AP6 (Stundenknoten gesammelt laden) → AP5 (`## Ablauf` lesen und schreiben, der erste Rückkanal). AP4 (optionale Phasendauer) ist Plattformarbeit und läuft unabhängig.
-- **AP0 und AP1 sind erledigt** (03.10.2026): Die Umbenennung ist vollständig, und `<!-- uplan:ende -->` begrenzt Hash und Vault-Teil.
-- **Was das für den Code heißt:** `status.ts` mit `VAULT_ZU_KATEGORIE`, der Slot-Anker und das Dateimuster mit `{nr}` sind der Stand von Stufe 1 und werden mit AP2 und AP3 ersetzt. Nicht darauf aufbauen.
+- **AP0 bis AP3 sind erledigt** (03.10.2026). Die Umbenennung ist vollständig, und `<!-- uplan:ende -->` begrenzt Hash und Vault-Teil. Stundennotizen tragen `UArt`/`UStand` statt `UStatus`, heißen nach ihrem Datum und ankern am Stundenknoten. Als Nächstes kommt AP6.
 - Der Schreibpfad (`patchSlot`, `patchLesson`) ist im API-Client vorhanden, aber unbenutzt. Stufe 4 (Kontextspeicher-Breite) ist nicht angefangen.
 
 ## Commands
@@ -84,7 +83,7 @@ Zwei Nähte halten die Sync-Logik von Obsidian und vom Netz fern:
 
 Dazwischen liegt **`materialize()` (`src/sync/materialize.ts`) — eine reine Funktion**: Serverstand plus vorhandene Notizen rein, Liste von Dateioperationen (`SyncOp[]`) raus. Kein Vault-Zugriff, kein Netz, keine Uhr. Deshalb ist der Probelauf kein Sonderpfad, sondern derselbe Plan, nur nicht ausgeführt — und deshalb sind alle Sync-Zusagen ohne laufendes Obsidian prüfbar.
 
-**Die Reihenfolge im Plan ist Teil des Plans.** Der Dateiname trägt eine laufende Nummer, und die ist eine Position, keine Identität: Kommt vorne eine Stunde dazu, rutschen alle folgenden. `materialize()` sortiert Umbenennungen und Neuanlagen deshalb so, dass jedes Ziel frei ist, wenn es an der Reihe ist (Ringtausch über einen Zwischennamen); `runner.ts` weigert sich zusätzlich, auf einen belegten Pfad zu schreiben oder umzubenennen. Beides zusammen hält Zusage 1 — die Sortierung, damit der Sync durchläuft, der Wächter, damit im Zweifel ein Fehler im Ergebnisfenster steht statt einer Notiz weniger im Vault.
+**Die Reihenfolge im Plan ist Teil des Plans.** Dateinamen wandern: Ein Swap tauscht zwei Namen, eine verschobene Stunde zieht auf den Namen einer archivierten, ein zweiter Termin am selben Tag benennt den ersten um. (Bis AP2 trug der Name eine laufende Nummer, und jede vorne eingefügte Stunde verschob alle folgenden.) `materialize()` sortiert Umbenennungen und Neuanlagen deshalb so, dass jedes Ziel frei ist, wenn es an der Reihe ist (Ringtausch über einen Zwischennamen); `runner.ts` weigert sich zusätzlich, auf einen belegten Pfad zu schreiben oder umzubenennen. Beides zusammen hält Zusage 1 — die Sortierung, damit der Sync durchläuft, der Wächter, damit im Zweifel ein Fehler im Ergebnisfenster steht statt einer Notiz weniger im Vault.
 
 **Diese Reinheit ist die wichtigste Eigenschaft des Codes.** Wer in `materialize()` etwas einbaut, das liest, schreibt, die Zeit abfragt oder zufällig ist, nimmt dem Projekt seine Testbarkeit. Was Ein-/Ausgabe braucht, gehört in `src/sync/runner.ts`.
 
@@ -102,7 +101,7 @@ src/
     materialize.ts     REIN: Plan bauen
     notizen.ts         Notizformate (Lehrauftrag, UE), Slug, Datum
     frontmatter.ts     Lesen tolerant, Schreiben streng; Marker-Abschnitt
-    status.ts          kategorie ↔ UStatus — die einzige Stelle
+    status.ts          kategorie → UArt, Slot → UStand — die einzige Stelle
     hash.ts            FNV-1a 64 Bit, stabile JSON-Darstellung
     plan.ts            SyncOp, SyncPlan, Zusammenfassung
     runner.ts          UNREIN: holen, planen, ausführen
@@ -116,8 +115,8 @@ Im Frontmatter jeder Notiz, kein separater Store:
 
 | Feld | Bedeutung |
 | --- | --- |
-| `uplan_slot_id` | Anker der Stundennotiz |
-| `uplan_node_id` | Stundenknoten (Stunde) bzw. Anker (UE) |
+| `uplan_slot_id` | Slot der Stundennotiz — Anker, solange es keinen Stundenknoten gibt; kennzeichnet zugleich jede Stundennotiz |
+| `uplan_node_id` | Stundenknoten (führender Anker der Stundennotiz) bzw. Anker der UE |
 | `uplan_group_id` | Gruppe der Plattform |
 | `uplan_updated_at` | Serverstand beim letzten Sync — billige Vorprüfung |
 | `uplan_server_hash` | Hash der zuletzt empfangenen Serverfassung → Server-Dirty |
@@ -128,15 +127,17 @@ Im Frontmatter jeder Notiz, kein separater Store:
 
 **Der Hash entscheidet, nicht der Zeitstempel.** Seit Plattform 0.10 schreibt `onupdate` den Stempel fort, aber mit Lücken: Er steht still bei reinen Alias-Änderungen, bei einem bloßen Kapitelwechsel einer Einheit und bei rohem SQL. Ein stehender Zeitstempel beweist deshalb nichts. Er darf die Prüfung abkürzen (gleich → sicher unverändert), aber nie entscheiden.
 
-**Warum der Slot ankert und nicht der Stundenknoten:** Ein Slot existiert ab der Slot-Generierung, `stunde_node_id` erst, wenn jemand einen Entwurf anlegt. Am Knoten verankert bekäme jede leere Stunde beim ersten Entwurf einen neuen Anker — und damit ein Duplikat statt einer Aktualisierung. Das weicht bewusst vom Plan ab, der `uplan_node_id` nennt; beide Felder stehen in der Notiz.
+**Anker: erst der Stundenknoten, dann der Slot** (`ordneNotizenZu`, Plan-Notizformat Entscheidung 2). Der Swap der Plattform tauscht Stundenknoten zwischen Slots, die ihr Datum behalten — am Slot verankert bliebe die Vorbereitung beim falschen Termin. Deshalb holt sich zuerst jeder Knoten seine Notiz, wo immer sie liegt; danach bekommen die übrigen Slots ihre Termin-Notiz über `uplan_slot_id`. Nur über den Knoten ginge es nicht: Ein Slot existiert ab der Slot-Generierung, `stunde_node_id` erst mit dem ersten Entwurf — die Platzhalter-Notiz übernimmt dann den Knoten, statt ein Duplikat zu bekommen. Eine Notiz, deren Knoten noch im Plan steht, wird nie über ihr (veraltetes) Slot-Feld vergeben.
 
-*Wird mit AP2 umgedreht* (`Plan-Notizformat.md`, Entscheidung 2): Der Swap der Plattform tauscht Stundenknoten zwischen Slots, die ihr Datum behalten — am Slot verankert bliebe die Vorbereitung beim falschen Termin. Künftig ankert der Stundenknoten, der Slot ist Rückfall, und eine Platzhalter-Notiz übernimmt den Knoten beim ersten Entwurf, statt ein Duplikat zu bekommen.
+**Grenze dieser Regel:** Platzhalter hängen an der Slot-ID. `POST …/slots/generate` mit `regenerate=True` löscht die Muster-Slots eines Halbjahrs und legt sie neu an — Notizen mit Knoten folgen ihrem Knoten, Platzhalter werden archiviert und neu angelegt.
+
+**Die Formatversion steht im Server-Hash** (`NOTIZFORMAT`). Wer `baueStundennotiz` ändert, zählt sie hoch — sonst bekämen nur die Notizen das neue Format, deren Termin sich gerade zufällig geändert hat.
 
 ### Zusagen an den Vault
 
 Diese vier gelten ohne Ausnahme. Wer eine davon aufweicht, ändert den Charakter des Werkzeugs:
 
-1. **Es wird nie gelöscht.** Verschwundenes bekommt `uplan_status: archiviert` — Stunden wie Einheiten. Die Plattform löscht hart, ohne Grabstein; die Übersicht liefert ohnehin nur Knoten mit `status = active`, und der Lifecycle-Dienst archiviert von selbst. Verschwundenes ist deshalb nur am Abgleich der Vollmenge erkennbar, nicht über ein Delta. Eine archivierte **Stundennotiz** wird dabei umbenannt (`… Stunde 7 (archiviert 2026-10-13)`): Die laufende Nummer im Namen gehört den aktiven Stunden, und die nachrückende will sie haben. Eine archivierte **UE-Notiz** bleibt, wo sie ist — in ihrem Ordner liegt das Material.
+1. **Es wird nie gelöscht.** Verschwundenes bekommt `uplan_status: archiviert` — Stunden wie Einheiten. Die Plattform löscht hart, ohne Grabstein; die Übersicht liefert ohnehin nur Knoten mit `status = active`, und der Lifecycle-Dienst archiviert von selbst. Verschwundenes ist deshalb nur am Abgleich der Vollmenge erkennbar, nicht über ein Delta. Eine archivierte **Stundennotiz** wird dabei umbenannt — `… 2026-10-13 (archiviert).md`, wenn ihr Slot verschwunden ist, `… (ersetzt).md`, wenn eine herübergewanderte Stunde ihren Termin übernommen hat; ist der Name vergeben, wird gezählt. Der Name gehört den aktiven Terminen, und ein Slot desselben Tages will ihn haben. Kehrt ihr Slot zurück, lebt sie wieder auf. Eine archivierte **UE-Notiz** bleibt, wo sie ist — in ihrem Ordner liegt das Material.
 2. **Alles hinter `<!-- uplan:ende -->` gehört dem Vault** und wird in Stundennotizen nie überschrieben. Der Marker ist die Grenze für den Erhalt wie für den Hash — eine Grenze statt zwei (`REGION_ENDE` in `frontmatter.ts`). In Altbestand ohne Marker gilt noch `## Eigene Notizen`.
 3. **UE-Notizen werden einmal angelegt, danach nur im Frontmatter gepflegt.** Der Rumpf gehört dem Vault, auch ohne Marker. Der UE-Ordner ist zugleich die Materialsammlung und wird bei Umbenennung auf der Plattform **nicht** mitgezogen — das wäre ein Nebeneffekt zu viel für einen Sync-Lauf.
 4. **Die Lehrauftragsnotiz wird nur angelegt, nie angefasst**, wenn sie schon existiert.
@@ -147,10 +148,11 @@ Bei beidseitiger Änderung gewinnt die Plattform; die Vault-Fassung wandert als 
 
 Das Notizformat folgt dem Bestand, nicht eigenem Geschmack — Bases und Dataview-Queries im Vault hängen daran.
 
-- **Stundennotiz:** `Kategorien: [[UStunden]]`, `Lehrauftrag`, `UEinheit`, `Datum`, `UStatus` (Emoji-Liste), `Inhalte`, `UStunden` (Doppelstunde = 2), journal-header-Callout, Meta-Bind-`inlineSelect` für `UStatus`.
+- **Stundennotiz:** `NwT 9/Unterrichtsstunden/NwT 9 2026-09-15.md` — bei zwei Terminen am selben Tag beide mit `(3. Std.)`. Frontmatter `Kategorien: [[UStunden]]`, `Lehrauftrag`, `UEinheit`, `Datum`, `UArt`, `UStand`, `Inhalte`, `UStunden` (Doppelstunde = 2). Rumpf: journal-header-Callout mit Datum und einer DataviewJS-Navigation (zur Anzeigezeit berechnet, der Sync schreibt keine Nachbarlinks), `## Hinweise` (nur mit `slot.note`), `## Ablauf`, Marker, `## Notizen`. Kein Meta-Bind-Feld — der Status gehört der Plattform.
 - **UE-Notiz:** `NwT 9/UE1 - Titel/UE1 - Titel.md` (Ordnernotiz; der Ordner ist die Materialsammlung), `Kategorien: [[UEinheiten]]`, `Stunden` = Zahl der zugewiesenen Slots.
 - **Lehrauftragsnotiz:** `NwT 9/NwT 9.md`, Rumpf aus `System/Templates/Unterricht/Lehrauftrag-Template.md` — diese Vorlage enthält keine Templater-Syntax und ist deshalb direkt verwendbar. `UEinheit-Template.md` dagegen rechnet in Templater-Blöcken und verschiebt sich selbst; ihr Ergebnis baut `notizen.ts` nach.
-- **`kategorie` ↔ `UStatus` ist nicht bijektiv** (5 ↔ 7 Werte). `unterricht` fächert über `hat_phasen` und `nachbereitet_at` in Platzhalter/vorbereitet/gehalten auf; `vertretung` hat im Vault kein Gegenstück und landet auf „⚫️ Platzhalter" — es steht deshalb **nicht** in `VAULT_ZU_KATEGORIE`, damit der Rückkanal daraus nie `unterricht` macht. Die Abbildung steht allein in `src/sync/status.ts`. *Mit AP3 entfällt das:* `UStatus` wird in `UArt` (1:1 aus `kategorie`) und `UStand` (abgeleitet) geteilt, beide read-only — es gibt dann keinen Status-Rückkanal mehr.
+- **`UArt` und `UStand` statt `UStatus`.** `UArt` ist `kategorie` 1:1 (`Unterricht`, `Entfall`, `Prüfung`, `Puffer`, `Vertretung`; eine unbekannte Kategorie erscheint mit ihrem Rohwert). `UStand` ist abgeleitet: `Gehalten` (`nachbereitet_at`) vor `Geplant` (`hat_phasen`) vor `Platzhalter`; `Skizze` kommt mit AP4/AP6. Beide gehören der Plattform — es gibt keinen Status-Rückkanal. Die Abbildung steht allein in `src/sync/status.ts`. Das Archiv 2025/26 trägt weiter `UStatus`; `UStunden-Katalog.base` zeigt deshalb beide.
+- **Archivierte Stundennotizen** (`uplan_status: archiviert`) blenden `Unterrichtsstunden.base`, `Unterricht-Cockpit.base` und die Statistik im Lehrauftrag-Template aus.
 - **Fach und Stufe kommen aus den Einstellungen, nicht von der Plattform.** Im Vault steht mal `[[Chemie]]`, mal `Chemie`, mal `CH` — das ist Vault-Konvention. Die Stufe lässt sich über `GET /planning/groups/{id}/curriculum-chapters` (`grade`) vorbefüllen.
 - **Der Lehrauftragsname wird aus dem Ordnernamen abgeleitet** (`lehrauftragName()`); das Einstellungsfeld ist nur ein Überschreibwert.
 
@@ -186,7 +188,7 @@ Im Client vorhanden, aber ungenutzt: `GET /planning/groups/{id}/units` (die Übe
 
 `npm test` läuft ohne Obsidian, ohne Server und ohne Token — über `FixtureHttpClient` und `InMemoryVaultAdapter`. Neue Sync-Logik gehört in `materialize()` und wird dort geprüft, nicht über die Oberfläche.
 
-Geprüft werden **Zusagen, nicht Zeilen**: Idempotenz (zweiter Lauf ändert nichts), Server-Änderung, beidseitiger Konflikt, Erhalt des vault-eigenen Abschnitts — und dass eine Zeile darin kein Konflikt ist —, Altbestand ohne Marker hasht wie vorher, Archivieren statt Löschen, Umbenennen statt Duplizieren, unangetasteter UE-Rumpf — und die Ausführung des Plans: eine vorne eingefügte Stunde verliert keine Notiz, ein Ringtausch der Namen löst sich auf, eine vault-eigene Datei auf dem Zielpfad wird gemeldet statt überschrieben.
+Geprüft werden **Zusagen, nicht Zeilen**: Idempotenz (zweiter Lauf ändert nichts), Server-Änderung, beidseitiger Konflikt, Erhalt des vault-eigenen Abschnitts — und dass eine Zeile darin kein Konflikt ist —, Altbestand ohne Marker hasht wie vorher, eine Stufe-1-Notiz wird einmal ins neue Format überführt, Archivieren statt Löschen, Umbenennen statt Duplizieren, unangetasteter UE-Rumpf; beim Anker: ein Swap lässt die Notizen mit ihren Stunden wandern, der erste Entwurf übernimmt den Platzhalter, ein verdrängter Platzhalter heißt „ersetzt" — und die Ausführung des Plans: eine vorne eingefügte Stunde verliert keine Notiz, ein Ringtausch der Namen löst sich auf, eine vault-eigene Datei auf dem Zielpfad wird gemeldet statt überschrieben, eine archivierte Notiz lebt wieder auf.
 
 Das `InMemoryVaultAdapter` ist dabei **so streng wie Obsidian**: Umbenennen auf einen belegten Pfad wirft. Ein nachsichtiges Testdoppel hat genau diesen Fehler einmal lange verdeckt.
 

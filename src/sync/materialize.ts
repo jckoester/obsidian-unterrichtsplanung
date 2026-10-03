@@ -1,8 +1,8 @@
 import type { OverviewRead, SlotRead, UnitRead } from "../api/types";
 import { hashObject } from "./hash";
 import {
-	MARKER_UEBERSCHRIFT,
 	REGION_ENDE,
+	VAULT_UEBERSCHRIFT,
 	extractOwnSection,
 	plattformRegion,
 	readScalars,
@@ -22,7 +22,7 @@ import {
 } from "./notizen";
 import { ersetzeFrontmatter } from "./frontmatter";
 import type { SyncOp, SyncPlan } from "./plan";
-import { kategorieZuUStatus } from "./status";
+import { kategorieZuUArt, slotZuUStand } from "./status";
 
 /**
  * Die Materialisierung ist **rein**: Serverstand + vorhandene Notizen rein, Liste von
@@ -50,11 +50,7 @@ export interface GruppenZuordnung {
 	ordner: string;
 	/** Unterordner für Stundennotizen, relativ zu `ordner`. */
 	stundenOrdner: string;
-	/** Dateinamensmuster; Platzhalter: {lehrauftrag} {nr} {datum} {thema} */
-	dateiMuster: string;
 }
-
-export const STANDARD_DATEIMUSTER = "{lehrauftrag} Stunde {nr}";
 
 export interface MaterializeInput {
 	zuordnung: GruppenZuordnung;
@@ -80,18 +76,93 @@ function kontextVon(zuordnung: GruppenZuordnung): LehrauftragKontext {
 	};
 }
 
-/** Der Anker. Siehe Kommentar in `stundenAnker`. */
-const ANKER_FELD = "uplan_slot_id";
-const UE_ANKER_FELD = "uplan_node_id";
+/**
+ * Die beiden Ankerfelder. Eine Stundennotiz trägt immer `uplan_slot_id` und, sobald es
+ * einen Entwurf gibt, `uplan_node_id`; eine UE-Notiz nur `uplan_node_id`. Am Slot-Feld
+ * erkennt der Sync deshalb, welche Art Notiz vor ihm liegt.
+ */
+const SLOT_FELD = "uplan_slot_id";
+const KNOTEN_FELD = "uplan_node_id";
 
 /**
- * Warum der Slot und nicht der Stundenknoten ankert: Ein Slot existiert ab der
- * Slot-Generierung, ein `stunde_node_id` erst, wenn jemand einen Entwurf anlegt.
- * Ankerte die Notiz am Knoten, bekäme jede leere Stunde beim ersten Entwurf einen
- * neuen Anker — und damit ein Duplikat statt einer Aktualisierung.
+ * Version des Stundennotiz-Formats. Sie steht im Server-Hash, damit eine Formatänderung
+ * jede Stundennotiz einmal neu schreibt — sonst bekämen nur die Notizen das neue Format,
+ * deren Termin sich zufällig gerade auf der Plattform geändert hat. Bei jeder Änderung
+ * an `baueStundennotiz` hochzählen.
+ *
+ * 2: `UArt`/`UStand` statt `UStatus`, Dateiname aus dem Datum, `## Ablauf`, `## Notizen`.
  */
-function stundenAnker(slot: SlotRead): string {
-	return slot.id;
+const NOTIZFORMAT = 2;
+
+interface Stundennotiz {
+	notiz: VorhandeneNotiz;
+	felder: Record<string, string>;
+}
+
+function istArchiviert(felder: Record<string, string>): boolean {
+	return felder["uplan_status"] === "archiviert";
+}
+
+function merke(register: Map<string, Stundennotiz[]>, schluessel: string, eintrag: Stundennotiz) {
+	const liste = register.get(schluessel) ?? [];
+	liste.push(eintrag);
+	register.set(schluessel, liste);
+}
+
+/** Die erste noch freie Notiz — eine aktive vor einer archivierten, die damit wieder auflebt. */
+function waehle(kandidaten: Stundennotiz[], vergeben: Set<Stundennotiz>): Stundennotiz | undefined {
+	const frei = kandidaten.filter((k) => !vergeben.has(k));
+	return frei.find((k) => !istArchiviert(k.felder)) ?? frei[0];
+}
+
+/**
+ * Welche vorhandene Notiz zu welchem Slot gehört (Notizformat-Plan, Entscheidung 2).
+ *
+ * Hat der Slot einen Stundenknoten, ankert die Notiz **am Knoten**: Sie ist „die Stunde"
+ * und folgt ihrem Inhalt. Das zählt, weil der Swap der Plattform Knoten zwischen Slots
+ * tauscht, die ihr Datum behalten — am Slot verankert bliebe die Vorbereitung beim falschen
+ * Termin stehen. Ohne Knoten ankert sie **am Slot** und ist „der Termin".
+ *
+ * Deshalb zwei Durchgänge, und die Reihenfolge ist der Kern: Erst holt sich jeder Knoten
+ * seine Notiz, wo immer sie gerade liegt. Dann bekommen die übrigen Slots ihre
+ * Termin-Notiz — auch dann, wenn der Slot inzwischen einen Knoten hat, den noch keine Notiz
+ * kennt. So übernimmt ein Platzhalter beim ersten Entwurf den Knoten, statt ein Duplikat
+ * zu bekommen.
+ *
+ * Eine Notiz, deren Knoten noch im Plan steht, gehört diesem Knoten, auch wenn ihr
+ * Slot-Feld noch auf den alten Termin zeigt. Ist ihr Knoten verschwunden (Entwurf
+ * gelöscht), fällt sie auf ihren Termin zurück.
+ */
+function ordneNotizenZu(slots: SlotRead[], notizen: Stundennotiz[]): Map<string, Stundennotiz> {
+	const nachKnoten = new Map<string, Stundennotiz[]>();
+	const nachSlot = new Map<string, Stundennotiz[]>();
+	for (const eintrag of notizen) {
+		merke(nachSlot, eintrag.felder[SLOT_FELD] as string, eintrag);
+		const knoten = eintrag.felder[KNOTEN_FELD];
+		if (knoten) merke(nachKnoten, knoten, eintrag);
+	}
+
+	const knotenImPlan = new Set(slots.flatMap((s) => (s.stunde_node_id ? [s.stunde_node_id] : [])));
+	const vergeben = new Set<Stundennotiz>();
+	const zuordnung = new Map<string, Stundennotiz>();
+	const vergib = (slot: SlotRead, eintrag: Stundennotiz | undefined) => {
+		if (!eintrag) return;
+		vergeben.add(eintrag);
+		zuordnung.set(slot.id, eintrag);
+	};
+
+	for (const slot of slots) {
+		if (slot.stunde_node_id) vergib(slot, waehle(nachKnoten.get(slot.stunde_node_id) ?? [], vergeben));
+	}
+	for (const slot of slots) {
+		if (zuordnung.has(slot.id)) continue;
+		const kandidaten = (nachSlot.get(slot.id) ?? []).filter((k) => {
+			const knoten = k.felder[KNOTEN_FELD];
+			return !knoten || !knotenImPlan.has(knoten);
+		});
+		vergib(slot, waehle(kandidaten, vergeben));
+	}
+	return zuordnung;
 }
 
 export class ZuordnungFehler extends Error {
@@ -129,19 +200,18 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	pruefeZuordnung(zuordnung);
 	const ops: SyncOp[] = [];
 
-	// Zwei Register, nicht eines: Eine Stundennotiz trägt beide Felder — `uplan_slot_id`
-	// als Anker und `uplan_node_id` für den Stundenentwurf. In einem gemeinsamen Register
-	// könnte sie einer Unterrichtseinheit in die Quere kommen.
-	const index = new Map<string, VorhandeneNotiz>();
+	// Stundennotizen und UE-Notizen getrennt: Eine Stundennotiz trägt mit `uplan_node_id`
+	// dasselbe Feld wie eine UE-Notiz und könnte ihr in einem gemeinsamen Register in die
+	// Quere kommen.
+	const stundennotizen: Stundennotiz[] = [];
 	const ueIndex = new Map<string, VorhandeneNotiz>();
 	for (const notiz of vorhanden) {
 		const felder = readScalars(splitNote(notiz.inhalt).frontmatter);
-		const slotAnker = felder[ANKER_FELD];
-		if (slotAnker) {
-			index.set(slotAnker, notiz);
+		if (felder[SLOT_FELD]) {
+			stundennotizen.push({ notiz, felder });
 			continue;
 		}
-		const ueAnker = felder[UE_ANKER_FELD];
+		const ueAnker = felder[KNOTEN_FELD];
 		if (ueAnker) ueIndex.set(ueAnker, notiz);
 	}
 
@@ -225,92 +295,106 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	}
 
 	const slots = [...overview.slots].sort(vergleicheSlots);
-	const gesehen = new Set<string>();
+	const pfade = stundenPfade(zuordnung, slots);
+	const zugeordnet = ordneNotizenZu(slots, stundennotizen);
 
-	slots.forEach((slot, i) => {
-		const anker = stundenAnker(slot);
-		gesehen.add(anker);
+	for (const slot of slots) {
 		const unit = slot.ue_node_id ? einheiten.get(slot.ue_node_id) : undefined;
-		const nr = i + 1;
-		const pfad = stundenPfad(zuordnung, slot, nr);
-		const vorhandeneNotiz = index.get(anker);
+		const pfad = pfade.get(slot.id) as string;
+		const bestehend = zugeordnet.get(slot.id);
 		const serverHash = hashObject(serverNutzlast(slot, unit));
 
-		if (!vorhandeneNotiz) {
+		if (!bestehend) {
 			ops.push({
 				art: "erstellen",
 				pfad,
-				inhalt: baueStundennotiz(zuordnung, slot, unit, nr, serverHash, ""),
+				inhalt: baueStundennotiz(zuordnung, slot, unit, serverHash, ""),
 			});
-			return;
+			continue;
 		}
 
-		const felder = readScalars(splitNote(vorhandeneNotiz.inhalt).frontmatter);
+		const { notiz, felder } = bestehend;
 		const vaultGeaendert =
 			felder["uplan_hash"] !== undefined &&
-			felder["uplan_hash"] !== hashPlattformRegion(vorhandeneNotiz.inhalt);
-		const serverGeaendert = felder["uplan_server_hash"] !== serverHash;
+			felder["uplan_hash"] !== hashPlattformRegion(notiz.inhalt);
+		// Eine archivierte Notiz, deren Termin zurückkehrt, wird neu geschrieben, auch bei
+		// gleichem Serverstand — sonst bekäme sie ihren Namen zurück und bliebe archiviert.
+		const serverGeaendert = felder["uplan_server_hash"] !== serverHash || istArchiviert(felder);
 
-		if (!serverGeaendert && !vaultGeaendert && vorhandeneNotiz.pfad === pfad) {
+		if (!serverGeaendert && !vaultGeaendert && notiz.pfad === pfad) {
 			ops.push({ art: "unveraendert", pfad });
-			return;
+			continue;
 		}
 
-		if (vorhandeneNotiz.pfad !== pfad) {
-			// Umbenennen statt neu anlegen — der Anker hängt am Slot, nicht am Namen.
-			ops.push({ art: "umbenennen", pfad, vonPfad: vorhandeneNotiz.pfad });
+		if (notiz.pfad !== pfad) {
+			// Umbenennen statt neu anlegen — der Anker steht im Frontmatter, nicht im Namen.
+			ops.push({ art: "umbenennen", pfad, vonPfad: notiz.pfad });
 		}
 
 		if (!serverGeaendert) {
-			// Nur der Vault hat sich bewegt. Stufe 1 schreibt nicht zurück; das Feld
-			// bleibt stehen und wandert in Stufe 2 über den Rückkanal.
+			// Nur der Vault hat sich bewegt. Zurückgeschrieben wird noch nicht; die Änderung
+			// bleibt stehen, bis der Rückkanal sie mitnimmt.
 			ops.push({
 				art: "unveraendert",
 				pfad,
-				grund: "nur Vault geändert — Rückkanal ist Stufe 2",
+				grund: "nur Vault geändert — wird noch nicht zurückgeschrieben",
 			});
-			return;
+			continue;
 		}
 
-		const eigenerTeil = extractOwnSection(splitNote(vorhandeneNotiz.inhalt).body);
-		const neu = baueStundennotiz(zuordnung, slot, unit, nr, serverHash, eigenerTeil);
+		const eigenerTeil = extractOwnSection(splitNote(notiz.inhalt).body);
+		const neu = baueStundennotiz(zuordnung, slot, unit, serverHash, eigenerTeil);
+		const uebernahme = slot.stunde_node_id && !felder[KNOTEN_FELD];
 
 		if (vaultGeaendert) {
 			ops.push({
 				art: "konflikt",
 				pfad,
-				inhalt: setzeHash(mitKonfliktblock(neu, vorhandeneNotiz.inhalt)),
+				inhalt: setzeHash(mitKonfliktblock(neu, notiz.inhalt)),
 				grund: "beidseitig geändert — Plattform gewinnt, Vault-Fassung als Block angehängt",
 			});
 		} else {
-			ops.push({ art: "aktualisieren", pfad, inhalt: neu, grund: "Serverstand neuer" });
-		}
-	});
-
-	// Verschwundenes erkennt man nur am Abgleich der Vollmenge — die Plattform löscht
-	// hart, ohne Grabstein. Gelöscht wird im Vault trotzdem nichts.
-	for (const [anker, notiz] of index) {
-		if (gesehen.has(anker)) continue;
-		const felder = readScalars(splitNote(notiz.inhalt).frontmatter);
-		if (felder["uplan_status"] === "archiviert") continue;
-
-		// Die laufende Nummer im Dateinamen gehört den aktiven Stunden: Fällt eine weg,
-		// rückt die nächste auf und will genau diesen Namen. Die archivierte Notiz gibt
-		// ihn deshalb frei — bleiben tut sie, mit ihrem Datum im Namen.
-		const ziel = archivPfad(notiz.pfad, felder["Datum"]);
-		if (ziel !== notiz.pfad) {
 			ops.push({
-				art: "umbenennen",
-				pfad: ziel,
-				vonPfad: notiz.pfad,
-				grund: "archiviert — gibt seinen Namen frei",
+				art: "aktualisieren",
+				pfad,
+				inhalt: neu,
+				grund: uebernahme ? "erster Entwurf — die Notiz übernimmt den Stundenknoten" : "Serverstand neuer",
 			});
 		}
+	}
+
+	// Was keinem Slot mehr zugeordnet ist, wird archiviert — nie gelöscht. Verschwundenes
+	// erkennt man nur am Abgleich der Vollmenge; die Plattform löscht hart, ohne Grabstein.
+	//
+	// Zwei Fälle, unterschieden im Namen: „ersetzt" heißt, der Termin besteht weiter, gehört
+	// jetzt aber einer Stunde, die von einem anderen Termin herübergewandert ist. Das trifft
+	// nur Platzhalter: Eine Notiz mit Knoten wandert mit ihrem Knoten.
+	const vergeben = new Set(zugeordnet.values());
+	const slotIds = new Set(slots.map((s) => s.id));
+	const belegt = new Set([...vorhanden.map((n) => n.pfad), ...pfade.values()]);
+	for (const eintrag of stundennotizen) {
+		if (vergeben.has(eintrag) || istArchiviert(eintrag.felder)) continue;
+		const { notiz, felder } = eintrag;
+		const slotId = felder[SLOT_FELD] as string;
+		const ersetzt = slotIds.has(slotId);
+
+		// Der Name gehört den aktiven Terminen: Ein Slot desselben Tages will ihn haben. Die
+		// archivierte Notiz gibt ihn deshalb frei.
+		const ziel = archivPfad(notiz.pfad, ersetzt ? "ersetzt" : "archiviert", belegt);
+		belegt.add(ziel);
+		ops.push({
+			art: "umbenennen",
+			pfad: ziel,
+			vonPfad: notiz.pfad,
+			grund: "archiviert — gibt seinen Namen frei",
+		});
 		ops.push({
 			art: "archivieren",
 			pfad: ziel,
 			inhalt: setzeStatusArchiviert(notiz.inhalt),
-			grund: "auf der Plattform nicht mehr vorhanden",
+			grund: ersetzt
+				? `ersetzt — ${pfade.get(slotId)} gehört jetzt einer verschobenen Stunde`
+				: "auf der Plattform nicht mehr vorhanden",
 		});
 	}
 
@@ -320,11 +404,17 @@ export function materialize(input: MaterializeInput): SyncPlan {
 	};
 }
 
-/** Wo eine archivierte Stundennotiz künftig liegt. Rein ableitbar, ohne Uhr. */
-function archivPfad(pfad: string, datum?: string): string {
-	const ohneEndung = pfad.replace(/\.md$/, "");
-	const zusatz = datum ? ` (archiviert ${datum})` : " (archiviert)";
-	return ohneEndung.endsWith(zusatz) ? pfad : `${ohneEndung}${zusatz}.md`;
+/**
+ * Wo eine archivierte Stundennotiz künftig liegt: `… (archiviert).md` bzw.
+ * `… (ersetzt).md`. Liegt dort schon eine, wird gezählt — `(archiviert 2)`. Rein ableitbar
+ * aus dem Dateibild, ohne Uhr.
+ */
+function archivPfad(pfad: string, wort: string, belegt: Set<string>): string {
+	const stamm = pfad.replace(/\.md$/, "");
+	for (let n = 1; ; n++) {
+		const ziel = `${stamm} (${n === 1 ? wort : `${wort} ${n}`}).md`;
+		if (!belegt.has(ziel)) return ziel;
+	}
 }
 
 /**
@@ -385,9 +475,13 @@ function vergleicheSlots(a: SlotRead, b: SlotRead): number {
 	return (a.start_period ?? 0) - (b.start_period ?? 0);
 }
 
-/** Genau die Felder, die in der Notiz landen — mehr darf nicht in den Hash. */
+/**
+ * Genau die Felder, die in der Notiz landen — mehr darf nicht in den Hash. Dazu die
+ * Formatversion: Ändert sich die Gestalt der Notiz, gilt jede als veraltet.
+ */
 function serverNutzlast(slot: SlotRead, unit: UnitRead | undefined) {
 	return {
+		format: NOTIZFORMAT,
 		date: slot.date,
 		start_period: slot.start_period,
 		periods: slot.periods,
@@ -402,26 +496,60 @@ function serverNutzlast(slot: SlotRead, unit: UnitRead | undefined) {
 	};
 }
 
-export function stundenPfad(
-	zuordnung: GruppenZuordnung,
-	slot: SlotRead,
-	nr: number,
-): string {
-	const name = zuordnung.dateiMuster
-		.replace("{lehrauftrag}", lehrauftragName(zuordnung))
-		.replace("{nr}", String(nr))
-		.replace("{datum}", slot.date)
-		.replace("{thema}", slugify(slot.thema ?? ""))
-		.trim();
-	const teile = [zuordnung.ordner, zuordnung.stundenOrdner, `${name}.md`].filter(Boolean);
-	return teile.join("/");
+/**
+ * Dateinamen aller Stundennotizen: `NwT 9 2026-09-15.md`.
+ *
+ * Keine laufende Nummer — sie ist eine Position, keine Identität, und jede vorne
+ * eingefügte Stunde benannte alle folgenden um. Kein Thema — eine Themenänderung soll
+ * keine Umbenennung auslösen. Das ISO-Datum vorn sortiert die Namen nebenbei
+ * chronologisch.
+ *
+ * Zwei Slots am selben Tag bekommen beide ihre Anfangsstunde angehängt, nicht nur der
+ * zweite: Sonst hinge der Name an der Reihenfolge, in der die Slots entstanden sind. Ohne
+ * `start_period` zählt die Reihenfolge des Tages.
+ *
+ * @param slots chronologisch sortiert
+ */
+export function stundenPfade(zuordnung: GruppenZuordnung, slots: SlotRead[]): Map<string, string> {
+	const jeTag = new Map<string, SlotRead[]>();
+	for (const slot of slots) jeTag.set(slot.date, [...(jeTag.get(slot.date) ?? []), slot]);
+
+	const pfade = new Map<string, string>();
+	for (const [datum, amTag] of jeTag) {
+		amTag.forEach((slot, i) => {
+			const zusatz = amTag.length > 1 ? ` (${slot.start_period ?? i + 1}. Std.)` : "";
+			const name = `${lehrauftragName(zuordnung)} ${datum}${zusatz}.md`;
+			pfade.set(slot.id, [zuordnung.ordner, zuordnung.stundenOrdner, name].filter(Boolean).join("/"));
+		});
+	}
+	return pfade;
 }
+
+/**
+ * Vor- und Zurück-Link als DataviewJS, zur Anzeigezeit berechnet.
+ *
+ * Das alte Skript schrieb die Nachbarn als Text in jede Notiz. Dann müsste der Sync bei
+ * jeder Verschiebung bis zu drei Notizen nachziehen — genau die Schreiblast, die der
+ * Dateiname aus dem Datum vermeiden soll. So schreibt er keine einzige Navigationszeile.
+ * Sortiert wird nach Dateiname, der mit dem ISO-Datum beginnt.
+ *
+ * Als sofort ausgeführte Funktion, weil Dataview einen Inline-Ausdruck erwartet.
+ */
+const NAVIGATION = [
+	"`$= (() => {",
+	"const c = dv.current();",
+	`const s = dv.pages('"' + c.file.folder + '"')`,
+	`.where(p => p.uplan_slot_id && p.uplan_status != "archiviert")`,
+	".sort(p => p.file.name).array();",
+	"const i = s.findIndex(p => p.file.path == c.file.path);",
+	`return (s[i - 1] ? s[i - 1].file.link : "") + " ← " + (c.UEinheit ?? "") + " → " + (s[i + 1] ? s[i + 1].file.link : "");`,
+	"})()`",
+].join(" ");
 
 export function baueStundennotiz(
 	zuordnung: GruppenZuordnung,
 	slot: SlotRead,
 	unit: UnitRead | undefined,
-	nr: number,
 	serverHash: string,
 	eigenerTeil: string,
 ): string {
@@ -430,7 +558,8 @@ export function baueStundennotiz(
 		Lehrauftrag: `[[${lehrauftragName(zuordnung)}]]`,
 		UEinheit: unit ? `[[${slugify(unit.title)}]]` : null,
 		Datum: slot.date,
-		UStatus: [kategorieZuUStatus(slot)],
+		UArt: kategorieZuUArt(slot.kategorie),
+		UStand: slotZuUStand(slot),
 		Inhalte: slot.thema ?? null,
 		UStunden: slot.periods,
 		uplan_slot_id: slot.id,
@@ -445,25 +574,23 @@ export function baueStundennotiz(
 	const kopf = [
 		">[!journal-header]",
 		">## `=this.Lehrauftrag`",
-		`># Stunde ${nr} - ${datumDeutsch(slot.date)}`,
+		`># ${datumDeutsch(slot.date)}`,
+		">>[!journal-header-links]",
+		`>>${NAVIGATION}`,
 	].join("\n");
 
-	const eigen = eigenerTeil.trim() || MARKER_UEBERSCHRIFT;
+	const eigen = eigenerTeil.trim() || VAULT_UEBERSCHRIFT;
 
+	// Kein Meta-Bind-Feld mehr: `UArt` und `UStand` gehören der Plattform. Ein Auswahlfeld
+	// lüde dazu ein, sie im Vault zu ändern — und jede solche Änderung wäre beim nächsten
+	// Serverstand ein Konflikt.
 	const rumpf = [
 		kopf,
 		"",
-		`Status:\`INPUT[inlineSelect(title(Status), option(⚫️ Platzhalter), option(🟡 Idee), option(🟢 vorbereitet), option(✅ gehalten), option(🔵 Puffer), option(🟣 Prüfung), option(🔴 Entfall),defaultValue(⚫️ Platzhalter)):UStatus]\``,
-		"",
-		"## Ziele",
-		// Das Stundenziel hängt am Stundenknoten (`LessonRead.stundenziel`), nicht am
-		// Slot. Stufe 1 lädt Stunden nicht einzeln nach — bis dahin bleibt es leer.
-		"-",
-		"",
 		...(slot.note?.trim() ? ["## Hinweise", slot.note.trim(), ""] : []),
-		"## Verlauf",
+		"## Ablauf",
 		slot.hat_phasen
-			? "_Entwurf liegt auf der Plattform — Phasen-Roundtrip ist Stufe 3._"
+			? "_Der Entwurf liegt auf der Plattform. Hier erscheint er, sobald der Ablauf gespiegelt wird._"
 			: "1.",
 		"",
 		REGION_ENDE,

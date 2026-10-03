@@ -1,7 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting, TFolder, normalizePath } from "obsidian";
 import type UnterrichtsplanungSyncPlugin from "./main";
 import { leereZuordnung } from "./settings";
-import { STANDARD_DATEIMUSTER } from "./sync/materialize";
 
 export class UpsSettingTab extends PluginSettingTab {
 	constructor(
@@ -218,16 +217,6 @@ export class UpsSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
-
-			new Setting(block)
-				.setName("Dateimuster")
-				.setDesc(`Platzhalter: {lehrauftrag} {nr} {datum} {thema} — Standard: ${STANDARD_DATEIMUSTER}`)
-				.addText((text) =>
-					text.setValue(zuordnung.dateiMuster).onChange(async (value) => {
-						zuordnung.dateiMuster = value || STANDARD_DATEIMUSTER;
-						await this.plugin.saveSettings();
-					}),
-				);
 
 			new Setting(block).addButton((button) =>
 				button

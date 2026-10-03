@@ -59,23 +59,27 @@ Im Frontmatter jeder Notiz, kein separater Store:
 
 | Feld | Bedeutung |
 | --- | --- |
-| `uplan_slot_id` | Anker der Stundennotiz |
-| `uplan_node_id` | Stundenknoten, sobald es einen Entwurf gibt |
+| `uplan_slot_id` | Slot der Stundennotiz — Anker, solange es keinen Entwurf gibt |
+| `uplan_node_id` | Stundenknoten — führender Anker, sobald es einen Entwurf gibt |
 | `uplan_group_id` | Gruppe der Plattform |
 | `uplan_updated_at` | Serverstand beim letzten Sync (billige Vorprüfung) |
 | `uplan_server_hash` | Hash der zuletzt empfangenen Serverfassung → Server-Dirty |
 | `uplan_hash` | Hash der zuletzt geschriebenen Plattform-Region → Vault-Dirty |
 | `uplan_status` | `aktiv` / `archiviert` |
 
-**Warum der Slot ankert und nicht der Knoten:** Ein Slot existiert ab der
-Slot-Generierung, `stunde_node_id` erst, wenn jemand einen Entwurf anlegt. Am Knoten
-verankert bekäme jede leere Stunde beim ersten Entwurf einen neuen Anker — und damit ein
-Duplikat statt einer Aktualisierung. Das weicht vom Plan ab, der `uplan_node_id` als Anker
-nennt; beide Felder stehen in der Notiz.
+**Erst der Knoten, dann der Slot:** Die Plattform kann Stunden zwischen Terminen
+tauschen, die Termine behalten ihr Datum. Eine Notiz mit Entwurf folgt deshalb ihrem
+Stundenknoten. Ein Termin ohne Entwurf hängt am Slot; bekommt er seinen ersten Entwurf,
+übernimmt die vorhandene Notiz den Knoten, statt ein Duplikat zu bekommen.
+
+Stundennotizen heißen nach ihrem Datum (`NwT 9 2026-09-15.md`), bei zwei Terminen am
+selben Tag mit Anfangsstunde (`… (3. Std.)`). Status als `UArt` und `UStand`, beide
+read-only.
 
 ### Zusagen an den Vault
 
-- Es wird **nie** gelöscht. Verschwundenes bekommt `uplan_status: archiviert`.
+- Es wird **nie** gelöscht. Verschwundenes bekommt `uplan_status: archiviert` und gibt
+  seinen Namen frei (`… (archiviert).md`, `… (ersetzt).md`).
 - Alles hinter `<!-- uplan:ende -->` gehört dem Vault, wird nie überschrieben und zählt
   nicht als Änderung. In älteren Notizen ohne diesen Marker ist `## Eigene Notizen` die
   Grenze.

@@ -3,63 +3,50 @@ import type { SlotKategorie } from "../api/types";
 /**
  * Die einzige Stelle, an der Plattform-Vokabular und Vault-Vokabular aufeinandertreffen.
  *
- * Der Vault kennt sieben `UStatus`-Werte (siehe das Meta-Bind-Auswahlfeld in den
- * Stundennotizen), die Plattform fünf `kategorie`-Werte. Die Abbildung ist deshalb
- * nicht bijektiv:
+ * Früher gab es dafür ein Feld, `UStatus`, mit sieben Werten. Die meinten zwei
+ * unabhängige Dinge — welche Art Termin das ist und wie weit seine Vorbereitung gediehen
+ * ist —, und die Abbildung von den fünf Kategorien der Plattform war nicht umkehrbar:
+ * `vertretung` hatte kein Gegenstück, und ein Häkchen bei „vorbereitet" hätte im
+ * Rückkanal einen Slot umwidmen können.
  *
- * - `unterricht` fächert im Vault nach Bearbeitungsstand auf — den liest das Plugin
- *   aus `hat_phasen` und `nachbereitet_at`, nicht aus der Kategorie.
- * - `vertretung` hat im Vault kein Gegenstück. Bis eine Option ergänzt ist, landet es
- *   auf „⚫️ Platzhalter"; der Rückkanal (Stufe 2) darf daraus **nie** `unterricht`
- *   machen — deshalb steht Vertretung nicht in `VAULT_ZU_KATEGORIE`.
+ * Jetzt zwei Felder, beide gehören der Plattform und sind im Vault read-only:
+ *
+ * - `UArt` — die Kategorie des Slots, 1:1.
+ * - `UStand` — der Bearbeitungsstand, abgeleitet aus dem, was die Übersicht ohnehin liefert.
+ *
+ * Einen Rückkanal für den Status gibt es damit nicht mehr; der Vault besitzt ihn nicht.
  */
 
-export const USTATUS = {
-	platzhalter: "⚫️ Platzhalter",
-	idee: "🟡 Idee",
-	vorbereitet: "🟢 vorbereitet",
-	gehalten: "✅ gehalten",
-	puffer: "🔵 Puffer",
-	pruefung: "🟣 Prüfung",
-	entfall: "🔴 Entfall",
-} as const;
+const UART: Record<SlotKategorie, string> = {
+	unterricht: "Unterricht",
+	ausfall: "Entfall",
+	pruefung: "Prüfung",
+	puffer: "Puffer",
+	vertretung: "Vertretung",
+};
 
-export type UStatus = (typeof USTATUS)[keyof typeof USTATUS];
+/**
+ * Eine Kategorie, die die Plattform neu einführt, erscheint mit ihrem Rohwert — nicht als
+ * „Unterricht". Ein still falsch einsortierter Termin fiele in keiner Base auf.
+ */
+export function kategorieZuUArt(kategorie: string): string {
+	return UART[kategorie as SlotKategorie] ?? kategorie;
+}
 
-export interface SlotStatusInput {
-	kategorie: SlotKategorie | string;
+/**
+ * `Skizze` (Phasen ohne Dauer) fehlt noch: Dafür braucht es die Phasen selbst (AP6) und
+ * eine Plattform, die eine Phase ohne Dauer annimmt (AP4). Bis dahin gibt es drei Stufen.
+ */
+export type UStand = "Platzhalter" | "Geplant" | "Gehalten";
+
+export interface SlotStandInput {
 	hat_phasen: boolean;
 	nachbereitet_at: string | null;
 }
 
-export function kategorieZuUStatus(slot: SlotStatusInput): UStatus {
-	switch (slot.kategorie) {
-		case "ausfall":
-			return USTATUS.entfall;
-		case "pruefung":
-			return USTATUS.pruefung;
-		case "puffer":
-			return USTATUS.puffer;
-		case "vertretung":
-			return USTATUS.platzhalter;
-		case "unterricht":
-		default:
-			if (slot.nachbereitet_at) return USTATUS.gehalten;
-			if (slot.hat_phasen) return USTATUS.vorbereitet;
-			return USTATUS.platzhalter;
-	}
+/** Nachbereitet schlägt geplant: Eine gehaltene Stunde hatte auch einen Plan. */
+export function slotZuUStand(slot: SlotStandInput): UStand {
+	if (slot.nachbereitet_at) return "Gehalten";
+	if (slot.hat_phasen) return "Geplant";
+	return "Platzhalter";
 }
-
-/**
- * Rückrichtung für Stufe 2. Bewusst unvollständig: Statuswerte, die im Vault nur den
- * Bearbeitungsstand meinen, ändern die Kategorie der Plattform nicht — sonst würde ein
- * Häkchen im Vault einen Slot umwidmen.
- */
-export const VAULT_ZU_KATEGORIE: Partial<Record<UStatus, SlotKategorie>> = {
-	[USTATUS.entfall]: "ausfall",
-	[USTATUS.pruefung]: "pruefung",
-	[USTATUS.puffer]: "puffer",
-	[USTATUS.platzhalter]: "unterricht",
-	[USTATUS.vorbereitet]: "unterricht",
-	[USTATUS.gehalten]: "unterricht",
-};

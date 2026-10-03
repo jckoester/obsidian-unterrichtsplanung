@@ -1,4 +1,4 @@
-import type { SlotRead, UnitRead } from "../api/types";
+import type { UnitRead } from "../api/types";
 import { renderFrontmatter, type FrontmatterValue } from "./frontmatter";
 
 /**
@@ -135,16 +135,7 @@ export function ueNutzlast(unit: UnitRead, stundenzahl: number) {
 	return { titel: unit.title, kapitel_std: unit.kapitel_std, stundenzahl };
 }
 
-export function ueOrdner(ordner: string, unit: UnitRead): string {
-	const name = slugify(unit.title);
-	return `${ordner}/${name}`;
-}
-
 export function uePfad(ordner: string, unit: UnitRead): string {
 	const name = slugify(unit.title);
 	return `${ordner}/${name}/${name}.md`;
-}
-
-export function stundenNutzlastSlot(slot: SlotRead) {
-	return slot;
 }

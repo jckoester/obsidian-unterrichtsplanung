@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+	ALTE_VAULT_UEBERSCHRIFT,
 	extractOwnSection,
-	MARKER_UEBERSCHRIFT,
 	plattformRegion,
 	readScalars,
 	REGION_ENDE,
@@ -33,8 +33,8 @@ describe("frontmatter", () => {
 	});
 
 	it("findet im Altbestand ohne Marker den Abschnitt ab der Überschrift", () => {
-		const body = `## Verlauf\n1.\n\n${MARKER_UEBERSCHRIFT}\nMeins\n`;
-		expect(extractOwnSection(body)).toBe(`${MARKER_UEBERSCHRIFT}\nMeins\n`);
+		const body = `## Verlauf\n1.\n\n${ALTE_VAULT_UEBERSCHRIFT}\nMeins\n`;
+		expect(extractOwnSection(body)).toBe(`${ALTE_VAULT_UEBERSCHRIFT}\nMeins\n`);
 	});
 
 	it("schneidet den Vault-Teil am Marker ab, nicht an der Überschrift", () => {

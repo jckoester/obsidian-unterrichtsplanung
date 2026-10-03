@@ -43,11 +43,11 @@ export class GgdApiClient {
 		return { schuljahr: overview.schuljahr, slots: overview.slots.length };
 	}
 
-	async overview(groupId: number, halbjahr?: number): Promise<OverviewRead> {
+	/** Immer das ganze Schuljahr — die Übersicht kennt keinen Halbjahresfilter. */
+	async overview(groupId: number): Promise<OverviewRead> {
 		const { json } = await this.http.send<OverviewRead>({
 			method: "GET",
 			path: `/planning/groups/${groupId}/overview`,
-			query: { halbjahr },
 		});
 		return json;
 	}

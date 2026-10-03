@@ -3,7 +3,6 @@ import overview from "../fixtures/overview-group1.json";
 import type { OverviewRead } from "../src/api/types";
 import {
 	materialize,
-	STANDARD_DATEIMUSTER,
 	lehrauftragName,
 	type GruppenZuordnung,
 } from "../src/sync/materialize";
@@ -15,7 +14,6 @@ const zuordnung: GruppenZuordnung = {
 	stufe: 9,
 	ordner: "Bereiche/11 Unterricht/NwT 9",
 	stundenOrdner: "Unterrichtsstunden",
-	dateiMuster: STANDARD_DATEIMUSTER,
 };
 
 const stand = overview as unknown as OverviewRead;
@@ -75,7 +73,7 @@ describe("UE-Notizen", () => {
 	});
 
 	it("werden von den Stundennotizen verlinkt", () => {
-		const stunde = lauf().ops.find((o) => o.pfad.includes("Stunde 1"));
+		const stunde = lauf().ops.find((o) => o.pfad.endsWith("NwT 9 2026-09-15.md"));
 		expect(stunde?.inhalt).toContain('UEinheit: "[[UE1 - Mechanische Übertragung]]"');
 	});
 

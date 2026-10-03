@@ -25,7 +25,7 @@ mkdir -p "$ZIEL/.obsidian/plugins" \
 cp -f "$QUELLE/.obsidian/types.json" "$ZIEL/.obsidian/types.json" 2>/dev/null || true
 cp -f "$QUELLE/.obsidian/app.json" "$ZIEL/.obsidian/app.json" 2>/dev/null || true
 
-for base in UE-Katalog UStunden-Katalog Lehraufträge Unterrichtseinheiten Unterrichtsstunden GFS-Themen; do
+for base in UE-Katalog UStunden-Katalog Lehraufträge Unterrichtseinheiten Unterrichtsstunden GFS-Themen Unterricht-Cockpit; do
 	cp -f "$QUELLE/System/Bases/$base.base" "$ZIEL/System/Bases/" 2>/dev/null || true
 done
 

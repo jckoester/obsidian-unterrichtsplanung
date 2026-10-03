@@ -24,11 +24,14 @@ export const REGION_ENDE = "<!-- uplan:ende -->";
 /** Die Markerzeile — nur als ganze Zeile, damit ein Zitat im Fließtext nicht zählt. */
 const REGION_ENDE_ZEILE = /^<!-- uplan:ende -->[ \t]*$/m;
 
+/** Überschrift, mit der der Vault-Teil einer neuen Stundennotiz beginnt. */
+export const VAULT_UEBERSCHRIFT = "## Notizen";
+
 /**
- * Überschrift, mit der der Vault-Teil einer neuen Stundennotiz beginnt. In Notizen ohne
- * `REGION_ENDE` — Altbestand von vor dem Marker — ist sie zugleich noch die Grenze.
+ * Die Grenze im Altbestand ohne `REGION_ENDE`. Nur noch gelesen, nie mehr geschrieben —
+ * eine Stundennotiz, die der Sync neu schreibt, bekommt den Marker.
  */
-export const MARKER_UEBERSCHRIFT = "## Eigene Notizen";
+export const ALTE_VAULT_UEBERSCHRIFT = "## Eigene Notizen";
 
 export interface NoteParts {
 	frontmatter: string; // roher Block ohne die --- Zeilen
@@ -104,13 +107,13 @@ function quoteIfNeeded(value: string): string {
 /**
  * Erhält den Vault-eigenen Teil: alles hinter `REGION_ENDE`.
  *
- * Altbestand ohne Marker: alles ab der Marker-Überschrift. Gibt es auch die nicht, ist der
+ * Altbestand ohne Marker: alles ab `## Eigene Notizen`. Gibt es auch das nicht, ist der
  * Vault-Teil leer.
  */
 export function extractOwnSection(body: string): string {
 	const treffer = REGION_ENDE_ZEILE.exec(body);
 	if (treffer) return body.slice(treffer.index + treffer[0].length).replace(/^\n+/, "");
-	const index = body.indexOf(MARKER_UEBERSCHRIFT);
+	const index = body.indexOf(ALTE_VAULT_UEBERSCHRIFT);
 	if (index === -1) return "";
 	return body.slice(index);
 }

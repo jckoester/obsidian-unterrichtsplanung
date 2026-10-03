@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest";
 import overview from "../fixtures/overview-group1.json";
-import type { OverviewRead } from "../src/api/types";
-import { MARKER_UEBERSCHRIFT, REGION_ENDE } from "../src/sync/frontmatter";
+import type { OverviewRead, SlotRead } from "../src/api/types";
+import { ALTE_VAULT_UEBERSCHRIFT, REGION_ENDE, VAULT_UEBERSCHRIFT } from "../src/sync/frontmatter";
 import { hashObject } from "../src/sync/hash";
-import {
-	materialize,
-	STANDARD_DATEIMUSTER,
-	ZuordnungFehler,
-	type GruppenZuordnung,
-} from "../src/sync/materialize";
+import { materialize, ZuordnungFehler, type GruppenZuordnung } from "../src/sync/materialize";
 
 const zuordnung: GruppenZuordnung = {
 	groupId: 1,
@@ -17,18 +12,20 @@ const zuordnung: GruppenZuordnung = {
 	stufe: 9,
 	ordner: "Bereiche/11 Unterricht/NwT 9",
 	stundenOrdner: "Unterrichtsstunden",
-	dateiMuster: STANDARD_DATEIMUSTER,
 };
 
 const stand = overview as unknown as OverviewRead;
 
-function ersterLauf() {
-	return materialize({ zuordnung, overview: stand, vorhanden: [] });
+function ersterLauf(serverstand: OverviewRead = stand) {
+	return materialize({ zuordnung, overview: serverstand, vorhanden: [] });
 }
 
 const STUNDEN = "Bereiche/11 Unterricht/NwT 9/Unterrichtsstunden";
+const ERSTE = `${STUNDEN}/NwT 9 2026-09-15.md`;
+const ZWEITE = `${STUNDEN}/NwT 9 2026-09-22.md`;
+const KNOTEN_C = "cccccccc-3333-4333-8333-cccccccccccc";
 
-/** Nur die Stundennotizen — der Plan enthält jetzt auch Lehrauftrag und UE. */
+/** Nur die Stundennotizen — der Plan enthält auch Lehrauftrag und UE. */
 function stundenOps(plan: ReturnType<typeof ersterLauf>) {
 	return plan.ops.filter((o) => o.pfad.startsWith(STUNDEN));
 }
@@ -39,10 +36,17 @@ function alsVorhanden(plan: ReturnType<typeof ersterLauf>) {
 		.map((o) => ({ pfad: o.pfad, inhalt: o.inhalt as string }));
 }
 
-function stunde(vorhanden: { pfad: string; inhalt: string }[], nr: number) {
-	const treffer = vorhanden.find((v) => v.pfad.includes(`Stunde ${nr}`));
-	if (!treffer) throw new Error(`Stunde ${nr} nicht im Plan`);
+function stunde(vorhanden: { pfad: string; inhalt: string }[], pfad: string) {
+	const treffer = vorhanden.find((v) => v.pfad === pfad);
+	if (!treffer) throw new Error(`${pfad} nicht im Plan`);
 	return treffer;
+}
+
+/** Ein Serverstand, abgeleitet vom Fixture. */
+function variante(aendern: (slots: SlotRead[]) => void): OverviewRead {
+	const serverstand = structuredClone(stand);
+	aendern(serverstand.slots);
+	return serverstand;
 }
 
 /**
@@ -53,10 +57,9 @@ function stunde(vorhanden: { pfad: string; inhalt: string }[], nr: number) {
  */
 function konfliktLauf() {
 	const vorhanden = alsVorhanden(ersterLauf());
-	const eins = stunde(vorhanden, 1);
-	eins.inhalt = eins.inhalt.replace("## Verlauf", "## Verlauf\n1. Von Hand ergänzt");
-	const serverstand = structuredClone(stand);
-	serverstand.slots[0]!.thema = "Getriebe, zweitens";
+	const eins = stunde(vorhanden, ERSTE);
+	eins.inhalt = eins.inhalt.replace("## Ablauf", "## Ablauf\n1. Von Hand ergänzt");
+	const serverstand = variante((s) => (s[0]!.thema = "Getriebe, zweitens"));
 	const konflikt = materialize({ zuordnung, overview: serverstand, vorhanden }).ops.find(
 		(o) => o.art === "konflikt",
 	);
@@ -75,23 +78,92 @@ function alsAltbestand(inhalt: string): string {
 	return ohneMarker.replace(/^uplan_hash:.*$/m, `uplan_hash: ${alterHash}`);
 }
 
+/**
+ * Eine Stundennotiz im Format von Stufe 1, wie sie im Testvault liegt: `Stunde N` im
+ * Namen, `UStatus` mit Meta-Bind-Feld, kein Marker. Beide Hashes nach den damaligen
+ * Formeln — der Server-Hash ohne Formatversion, der Vault-Hash über die ganze Datei.
+ */
+function stufe1Notiz(slot: SlotRead, ueTitel: string, eigenes: string) {
+	const serverHash = hashObject({
+		date: slot.date,
+		start_period: slot.start_period,
+		periods: slot.periods,
+		kategorie: slot.kategorie,
+		thema: slot.thema,
+		note: slot.note,
+		hat_phasen: slot.hat_phasen,
+		nachbereitet_at: slot.nachbereitet_at,
+		ue_node_id: slot.ue_node_id,
+		stunde_node_id: slot.stunde_node_id,
+		ue_titel: ueTitel,
+	});
+	const ohneHash = [
+		"---",
+		"Kategorien:",
+		'  - "[[UStunden]]"',
+		'Lehrauftrag: "[[NwT 9]]"',
+		`UEinheit: "[[${ueTitel}]]"`,
+		`Datum: ${slot.date}`,
+		"UStatus:",
+		"  - ⚫️ Platzhalter",
+		`Inhalte: ${slot.thema}`,
+		`UStunden: ${slot.periods}`,
+		`uplan_slot_id: ${slot.id}`,
+		"uplan_node_id:",
+		`uplan_group_id: ${slot.group_id}`,
+		`uplan_updated_at: "${slot.updated_at}"`,
+		`uplan_server_hash: ${serverHash}`,
+		"uplan_hash:",
+		"uplan_status: aktiv",
+		"---",
+		">[!journal-header]",
+		">## `=this.Lehrauftrag`",
+		"># Stunde 1 - 15.09.2026",
+		"",
+		"Status:`INPUT[inlineSelect(title(Status), option(⚫️ Platzhalter), option(🔴 Entfall)):UStatus]`",
+		"",
+		"## Ziele",
+		"-",
+		"",
+		"## Verlauf",
+		"1.",
+		"",
+		ALTE_VAULT_UEBERSCHRIFT,
+		eigenes,
+		"",
+	].join("\n");
+	return {
+		pfad: `${STUNDEN}/NwT 9 Stunde 1.md`,
+		inhalt: ohneHash.replace(/^uplan_hash:$/m, `uplan_hash: ${hashObject(ohneHash)}`),
+	};
+}
+
 function mitEigenerZeile(inhalt: string): string {
-	return inhalt.replace(MARKER_UEBERSCHRIFT, `${MARKER_UEBERSCHRIFT}\nMaterial liegt im Schrank.`);
+	return inhalt.replace(VAULT_UEBERSCHRIFT, `${VAULT_UEBERSCHRIFT}\nMaterial liegt im Schrank.`);
 }
 
 describe("materialize", () => {
-	it("legt für jeden Slot genau eine Notiz an", () => {
+	it("legt für jeden Slot genau eine Notiz an, benannt nach dem Datum", () => {
 		const plan = ersterLauf();
 		expect(stundenOps(plan).filter((o) => o.art === "erstellen")).toHaveLength(2);
-		expect(stundenOps(plan)[0]?.pfad).toBe(`${STUNDEN}/NwT 9 Stunde 1.md`);
+		expect(stundenOps(plan).map((o) => o.pfad)).toEqual([ERSTE, ZWEITE]);
 	});
 
-	it("nummeriert chronologisch und übersetzt die Kategorie", () => {
-		const plan = ersterLauf();
-		const zweite = stundenOps(plan)[1]?.inhalt ?? "";
-		expect(zweite).toContain("# Stunde 2 - 22.09.2026");
-		expect(zweite).toContain("🟣 Prüfung");
+	it("schreibt UArt und UStand statt UStatus — und kein Auswahlfeld", () => {
+		const zweite = stundenOps(ersterLauf())[1]?.inhalt ?? "";
+		expect(zweite).toContain("UArt: Prüfung");
+		expect(zweite).toContain("UStand: Geplant");
+		expect(zweite).toContain("># 22.09.2026");
 		expect(zweite).toContain('UEinheit: "[[UE1 - Mechanische Übertragung]]"');
+		expect(zweite).not.toContain("UStatus");
+		expect(zweite).not.toContain("INPUT[");
+	});
+
+	it("schreibt keinen Wikilink auf eine Nachbarstunde — die Navigation rechnet Dataview", () => {
+		for (const op of stundenOps(ersterLauf())) {
+			expect(op.inhalt).not.toMatch(/\[\[NwT 9 2026/);
+			expect(op.inhalt).toContain(">>`$= (() => {");
+		}
 	});
 
 	it("ist idempotent — zweiter Lauf ändert nichts", () => {
@@ -102,34 +174,25 @@ describe("materialize", () => {
 
 	it("erkennt eine Änderung auf der Plattform", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		const geaendert = structuredClone(stand);
-		geaendert.slots[0]!.thema = "Getriebe, Teil 2";
+		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
 		const zweit = materialize({ zuordnung, overview: geaendert, vorhanden });
 		expect(zweit.ops.filter((o) => o.art === "aktualisieren")).toHaveLength(1);
 	});
 
 	it("meldet beidseitige Änderung als Konflikt und rettet die Vault-Fassung", () => {
-		const vorhanden = alsVorhanden(ersterLauf());
-		const eins = stunde(vorhanden, 1);
-		eins.inhalt = eins.inhalt.replace("## Verlauf", "## Verlauf\n1. Von Hand ergänzt");
-		const geaendert = structuredClone(stand);
-		geaendert.slots[0]!.thema = "Getriebe, Teil 2";
-		const zweit = materialize({ zuordnung, overview: geaendert, vorhanden });
-		const konflikt = zweit.ops.find((o) => o.art === "konflikt");
-		expect(konflikt).toBeDefined();
-		expect(konflikt?.inhalt).toContain("Von Hand ergänzt");
-		expect(konflikt?.inhalt).toContain("Sync-Konflikt");
+		const { konflikt } = konfliktLauf();
+		expect(konflikt.inhalt).toContain("Von Hand ergänzt");
+		expect(konflikt.inhalt).toContain("Sync-Konflikt");
 	});
 
 	// Bis zur Hash-Region wurde daraus ein Konflikt: Der Hash lief über die ganze Datei, und
 	// der eigene Abschnitt stand danach ein zweites Mal im Konfliktblock.
 	it("bewahrt den vault-eigenen Abschnitt bei Aktualisierung — ohne Konflikt", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		stunde(vorhanden, 1).inhalt = mitEigenerZeile(stunde(vorhanden, 1).inhalt);
-		const geaendert = structuredClone(stand);
-		geaendert.slots[0]!.thema = "Getriebe, Teil 2";
-		const op = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find((o) =>
-			o.pfad.includes("Stunde 1"),
+		stunde(vorhanden, ERSTE).inhalt = mitEigenerZeile(stunde(vorhanden, ERSTE).inhalt);
+		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
+		const op = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
+			(o) => o.pfad === ERSTE,
 		);
 		expect(op?.art).toBe("aktualisieren");
 		expect(op?.inhalt?.split("Material liegt im Schrank.")).toHaveLength(2);
@@ -137,25 +200,25 @@ describe("materialize", () => {
 
 	it("hält den eigenen Abschnitt nicht für eine Vault-Änderung", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		stunde(vorhanden, 1).inhalt = mitEigenerZeile(stunde(vorhanden, 1).inhalt);
-		const op = materialize({ zuordnung, overview: stand, vorhanden }).ops.find((o) =>
-			o.pfad.includes("Stunde 1"),
+		stunde(vorhanden, ERSTE).inhalt = mitEigenerZeile(stunde(vorhanden, ERSTE).inhalt);
+		const op = materialize({ zuordnung, overview: stand, vorhanden }).ops.find(
+			(o) => o.pfad === ERSTE,
 		);
 		expect(op?.art).toBe("unveraendert");
 		expect(op?.grund).toBeUndefined();
 	});
 
-	it("setzt die Grenze vor den eigenen Abschnitt", () => {
-		const inhalt = stunde(alsVorhanden(ersterLauf()), 1).inhalt;
-		expect(inhalt.indexOf(REGION_ENDE)).toBeGreaterThan(inhalt.indexOf("## Verlauf"));
-		expect(inhalt.indexOf(REGION_ENDE)).toBeLessThan(inhalt.indexOf(MARKER_UEBERSCHRIFT));
+	it("setzt die Grenze zwischen Ablauf und eigenen Abschnitt", () => {
+		const inhalt = stunde(alsVorhanden(ersterLauf()), ERSTE).inhalt;
+		expect(inhalt.indexOf(REGION_ENDE)).toBeGreaterThan(inhalt.indexOf("## Ablauf"));
+		expect(inhalt.indexOf(REGION_ENDE)).toBeLessThan(inhalt.indexOf(VAULT_UEBERSCHRIFT));
 	});
 
 	it("lässt eine Bestandsnotiz ohne Marker in Ruhe, solange sich nichts ändert", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		stunde(vorhanden, 1).inhalt = alsAltbestand(stunde(vorhanden, 1).inhalt);
-		const op = materialize({ zuordnung, overview: stand, vorhanden }).ops.find((o) =>
-			o.pfad.includes("Stunde 1"),
+		stunde(vorhanden, ERSTE).inhalt = alsAltbestand(stunde(vorhanden, ERSTE).inhalt);
+		const op = materialize({ zuordnung, overview: stand, vorhanden }).ops.find(
+			(o) => o.pfad === ERSTE,
 		);
 		expect(op?.art).toBe("unveraendert");
 		expect(op?.grund).toBeUndefined();
@@ -163,56 +226,84 @@ describe("materialize", () => {
 
 	it("gibt einer Bestandsnotiz beim Aktualisieren den Marker — danach gilt die Region", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		const eins = stunde(vorhanden, 1);
+		const eins = stunde(vorhanden, ERSTE);
 		eins.inhalt = alsAltbestand(eins.inhalt);
 
-		const geaendert = structuredClone(stand);
-		geaendert.slots[0]!.thema = "Getriebe, Teil 2";
+		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
 		const umgestellt = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
-			(o) => o.pfad === eins.pfad,
+			(o) => o.pfad === ERSTE,
 		);
 		expect(umgestellt?.art).toBe("aktualisieren");
 		expect(umgestellt?.inhalt).toContain(REGION_ENDE);
 
 		eins.inhalt = mitEigenerZeile(umgestellt?.inhalt as string);
-		const nochmal = structuredClone(geaendert);
-		nochmal.slots[0]!.thema = "Getriebe, Teil 3";
+		const nochmal = variante((s) => (s[0]!.thema = "Getriebe, Teil 3"));
 		const op = materialize({ zuordnung, overview: nochmal, vorhanden }).ops.find(
-			(o) => o.pfad === eins.pfad,
+			(o) => o.pfad === ERSTE,
 		);
 		expect(op?.art).toBe("aktualisieren");
 		expect(op?.inhalt).toContain("Material liegt im Schrank.");
 	});
 
+	// Der Weg, den die Notizen im Testvault gehen: Die Formatversion im Server-Hash sorgt
+	// dafür, dass jede Stufe-1-Notiz einmal neu geschrieben wird — nicht nur die, deren
+	// Termin sich zufällig gerade geändert hat.
+	it("schreibt eine Stufe-1-Notiz einmal neu, benennt sie um und behält ihren Abschnitt", () => {
+		const alt = stufe1Notiz(stand.slots[0]!, "UE1 - Mechanische Übertragung", "Meins");
+		const vorhanden = [...alsVorhanden(ersterLauf()).filter((v) => v.pfad !== ERSTE), alt];
+		const plan = materialize({ zuordnung, overview: stand, vorhanden });
+
+		expect(plan.ops).toContainEqual(
+			expect.objectContaining({ art: "umbenennen", vonPfad: alt.pfad, pfad: ERSTE }),
+		);
+		const neu = plan.ops.find((o) => o.pfad === ERSTE && o.inhalt);
+		expect(neu?.art).toBe("aktualisieren");
+		expect(neu?.inhalt).toContain("UArt: Unterricht");
+		expect(neu?.inhalt).not.toContain("UStatus");
+		expect(neu?.inhalt).toContain(`${REGION_ENDE}\n\n${ALTE_VAULT_UEBERSCHRIFT}\nMeins`);
+
+		const danach = [
+			...vorhanden.filter((v) => v !== alt),
+			{ pfad: ERSTE, inhalt: neu?.inhalt as string },
+		];
+		const dritt = materialize({ zuordnung, overview: stand, vorhanden: danach });
+		expect(dritt.ops.every((o) => o.art === "unveraendert")).toBe(true);
+	});
+
 	it("archiviert statt zu löschen, wenn ein Slot verschwindet", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		const geschrumpft = structuredClone(stand);
-		geschrumpft.slots = [geschrumpft.slots[0]!];
+		const geschrumpft = variante((s) => s.splice(1));
 		const plan = materialize({ zuordnung, overview: geschrumpft, vorhanden });
 		const archiv = plan.ops.find((o) => o.art === "archivieren");
 		expect(archiv?.inhalt).toContain("uplan_status: archiviert");
-		expect(archiv?.pfad).toContain("Stunde 2");
+		expect(archiv?.pfad).toBe(`${STUNDEN}/NwT 9 2026-09-22 (archiviert).md`);
 		expect(plan.ops.some((o) => o.art === "erstellen")).toBe(false);
 	});
 
-	it("gibt beim Archivieren den Dateinamen frei", () => {
+	// Der Normalfall dafür ist der Neuaufbau eines Halbjahrs: Die Plattform löscht die Slots
+	// und legt sie mit neuen IDs wieder an. Ohne Knoten hängt der Platzhalter an der alten ID.
+	it("gibt beim Archivieren den Namen frei, wenn ein neuer Slot denselben Tag will", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		const geschrumpft = structuredClone(stand);
-		geschrumpft.slots = [geschrumpft.slots[1]!]; // die erste Stunde fällt weg
-		const plan = materialize({ zuordnung, overview: geschrumpft, vorhanden });
+		const neuAufgebaut = variante((s) => (s[0]!.id = "99999999-9999-4999-8999-999999999999"));
+		const plan = materialize({ zuordnung, overview: neuAufgebaut, vorhanden });
 
-		const archiv = plan.ops.find((o) => o.art === "archivieren");
-		expect(archiv?.pfad).toBe(`${STUNDEN}/NwT 9 Stunde 1 (archiviert 2026-09-15).md`);
-
-		// … und die überlebende Stunde rückt auf den frei gewordenen Namen auf.
-		const aufrueckend = plan.ops.findIndex(
-			(o) => o.art === "umbenennen" && o.pfad === `${STUNDEN}/NwT 9 Stunde 1.md`,
-		);
 		const freigebend = plan.ops.findIndex(
-			(o) => o.art === "umbenennen" && o.pfad.includes("(archiviert"),
+			(o) => o.art === "umbenennen" && o.vonPfad === ERSTE,
 		);
+		const neu = plan.ops.findIndex((o) => o.art === "erstellen" && o.pfad === ERSTE);
+		expect(plan.ops[freigebend]?.pfad).toBe(`${STUNDEN}/NwT 9 2026-09-15 (archiviert).md`);
 		expect(freigebend).toBeGreaterThanOrEqual(0);
-		expect(freigebend).toBeLessThan(aufrueckend);
+		expect(freigebend).toBeLessThan(neu);
+	});
+
+	it("zählt weiter, wenn der Archivname schon vergeben ist", () => {
+		const vorhanden = [
+			...alsVorhanden(ersterLauf()),
+			{ pfad: `${STUNDEN}/NwT 9 2026-09-22 (archiviert).md`, inhalt: "älter\n" },
+		];
+		const plan = materialize({ zuordnung, overview: variante((s) => s.splice(1)), vorhanden });
+		const archiv = plan.ops.find((o) => o.art === "archivieren");
+		expect(archiv?.pfad).toBe(`${STUNDEN}/NwT 9 2026-09-22 (archiviert 2).md`);
 	});
 
 	// Der Rückfallzweig für Notizen ohne `uplan_status`-Zeile schrieb nach der Umbenennung
@@ -220,10 +311,9 @@ describe("materialize", () => {
 	// eine weitere Statuszeile.
 	it("archiviert auch eine Notiz ohne Statuszeile genau einmal", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		const zwei = stunde(vorhanden, 2);
+		const zwei = stunde(vorhanden, ZWEITE);
 		zwei.inhalt = zwei.inhalt.replace(/^uplan_status:.*\n/m, "");
-		const geschrumpft = structuredClone(stand);
-		geschrumpft.slots = [geschrumpft.slots[0]!];
+		const geschrumpft = variante((s) => s.splice(1));
 
 		const archiv = materialize({ zuordnung, overview: geschrumpft, vorhanden }).ops.find(
 			(o) => o.art === "archivieren",
@@ -272,8 +362,8 @@ describe("materialize", () => {
 				? {
 						pfad: v.pfad,
 						inhalt: (konflikt.inhalt as string).replace(
-							"## Verlauf",
-							"## Verlauf\n1. Und noch etwas",
+							"## Ablauf",
+							"## Ablauf\n1. Und noch etwas",
 						),
 					}
 				: v,
@@ -289,11 +379,117 @@ describe("materialize", () => {
 
 	it("benennt um statt zu duplizieren, wenn sich das Datum verschiebt", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
-		const getauscht = structuredClone(stand);
-		getauscht.slots[0]!.date = "2026-09-29"; // rutscht hinter den zweiten Slot
-		const plan = materialize({ zuordnung, overview: getauscht, vorhanden });
-		expect(plan.ops.filter((o) => o.art === "umbenennen").length).toBeGreaterThan(0);
+		const verschoben = variante((s) => (s[0]!.date = "2026-09-29"));
+		const plan = materialize({ zuordnung, overview: verschoben, vorhanden });
+		expect(plan.ops).toContainEqual(
+			expect.objectContaining({
+				art: "umbenennen",
+				vonPfad: ERSTE,
+				pfad: `${STUNDEN}/NwT 9 2026-09-29.md`,
+			}),
+		);
 		expect(plan.ops.some((o) => o.art === "erstellen")).toBe(false);
+	});
+});
+
+describe("Anker am Stundenknoten", () => {
+	/** Beide Fixture-Slots mit Stundenknoten: der erste mit C, der zweite mit B. */
+	const beideGeplant = variante((s) => {
+		s[0]!.stunde_node_id = KNOTEN_C;
+		s[0]!.hat_phasen = true;
+	});
+
+	/** Was der Swap der Plattform tut: Knoten, Einheit und Thema tauschen, das Datum bleibt. */
+	function getauscht(serverstand: OverviewRead): OverviewRead {
+		const neu = structuredClone(serverstand);
+		const [a, b] = neu.slots as [SlotRead, SlotRead];
+		[a.stunde_node_id, b.stunde_node_id] = [b.stunde_node_id, a.stunde_node_id];
+		[a.ue_node_id, b.ue_node_id] = [b.ue_node_id, a.ue_node_id];
+		[a.thema, b.thema] = [b.thema, a.thema];
+		[a.hat_phasen, b.hat_phasen] = [b.hat_phasen, a.hat_phasen];
+		return neu;
+	}
+
+	it("lässt bei einem Swap die Notizen mit ihren Stunden wandern", () => {
+		const vorhanden = alsVorhanden(ersterLauf(beideGeplant));
+		stunde(vorhanden, ERSTE).inhalt = mitEigenerZeile(stunde(vorhanden, ERSTE).inhalt);
+
+		const plan = materialize({ zuordnung, overview: getauscht(beideGeplant), vorhanden });
+
+		// Zwei Namen tauschen — das braucht einen Zwischenschritt, also drei Umbenennungen.
+		expect(plan.ops.filter((o) => o.art === "umbenennen")).toHaveLength(3);
+		expect(plan.ops.some((o) => o.art === "erstellen")).toBe(false);
+		// Die Vorbereitung für Stunde C liegt jetzt beim 22.09. — mit ihrem eigenen Abschnitt.
+		const c = plan.ops.find((o) => o.pfad === ZWEITE && o.inhalt);
+		expect(c?.inhalt).toContain(`uplan_node_id: ${KNOTEN_C}`);
+		expect(c?.inhalt).toContain("Material liegt im Schrank.");
+	});
+
+	it("übernimmt beim ersten Entwurf den Knoten, statt ein Duplikat anzulegen", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		stunde(vorhanden, ERSTE).inhalt = mitEigenerZeile(stunde(vorhanden, ERSTE).inhalt);
+		const plan = materialize({ zuordnung, overview: beideGeplant, vorhanden });
+
+		expect(stundenOps(plan).some((o) => o.art === "erstellen")).toBe(false);
+		const op = plan.ops.find((o) => o.pfad === ERSTE);
+		expect(op?.art).toBe("aktualisieren");
+		expect(op?.grund).toContain("erster Entwurf");
+		expect(op?.inhalt).toContain(`uplan_node_id: ${KNOTEN_C}`);
+		expect(op?.inhalt).toContain("Material liegt im Schrank.");
+	});
+
+	it("archiviert einen Platzhalter als ersetzt, wenn eine Stunde auf seinen Termin wandert", () => {
+		// Vorher: Stunde C am 15.09., ein leerer Termin am 22.09.
+		const vorher = variante((s) => {
+			s[0]!.stunde_node_id = KNOTEN_C;
+			s[0]!.hat_phasen = true;
+			s[1]!.stunde_node_id = null;
+			s[1]!.hat_phasen = false;
+		});
+		const vorhanden = alsVorhanden(ersterLauf(vorher));
+		const plan = materialize({ zuordnung, overview: getauscht(vorher), vorhanden });
+
+		const ersetzt = `${STUNDEN}/NwT 9 2026-09-22 (ersetzt).md`;
+		const archiv = plan.ops.find((o) => o.art === "archivieren");
+		expect(archiv?.pfad).toBe(ersetzt);
+		expect(archiv?.grund).toContain("ersetzt");
+
+		// Erst macht der Platzhalter Platz, dann zieht Stunde C ein, dann bekommt der
+		// 15.09. einen neuen Platzhalter.
+		const platz = plan.ops.findIndex((o) => o.art === "umbenennen" && o.pfad === ersetzt);
+		const einzug = plan.ops.findIndex((o) => o.art === "umbenennen" && o.pfad === ZWEITE);
+		const neu = plan.ops.findIndex((o) => o.art === "erstellen" && o.pfad === ERSTE);
+		expect(platz).toBeGreaterThanOrEqual(0);
+		expect(platz).toBeLessThan(einzug);
+		expect(einzug).toBeLessThan(neu);
+	});
+
+	it("hängt bei zwei Stunden am selben Tag beiden die Anfangsstunde an", () => {
+		const nachmittag: SlotRead = {
+			...structuredClone(stand.slots[0]!),
+			id: "33333333-3333-4333-8333-333333333333",
+			start_period: 6,
+			thema: "Nachmittag",
+		};
+		const doppelt = variante((s) => s.push(nachmittag));
+		const vorhanden = alsVorhanden(ersterLauf(doppelt));
+		expect(vorhanden.map((v) => v.pfad)).toEqual(
+			expect.arrayContaining([
+				`${STUNDEN}/NwT 9 2026-09-15 (3. Std.).md`,
+				`${STUNDEN}/NwT 9 2026-09-15 (6. Std.).md`,
+				ZWEITE,
+			]),
+		);
+
+		// Fällt der Nachmittag weg, verliert der Vormittag den Zusatz wieder.
+		const plan = materialize({ zuordnung, overview: stand, vorhanden });
+		expect(plan.ops).toContainEqual(
+			expect.objectContaining({
+				art: "umbenennen",
+				vonPfad: `${STUNDEN}/NwT 9 2026-09-15 (3. Std.).md`,
+				pfad: ERSTE,
+			}),
+		);
 	});
 });
 
