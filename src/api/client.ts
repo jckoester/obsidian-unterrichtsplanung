@@ -92,18 +92,39 @@ export class GgdApiClient {
 	 * aber nicht zwingend alles, was an einem Slot hängt — siehe `holeStundenknoten`.
 	 */
 	async stundenknoten(groupId: number): Promise<ContextNodeRead[]> {
+		return this.alleSeiten(
+			(limit, offset) => stundenFilter(groupId, limit, offset),
+			`Stundenknoten in Gruppe ${groupId}`,
+		);
+	}
+
+	/**
+	 * Alle Wissensknoten eines Typs, die der Nutzer sehen darf — für die Wertelisten von
+	 * Sozialform und Methode. Braucht `context:read` wie die Stundenknoten.
+	 */
+	async knotenVomTyp(contentType: string): Promise<ContextNodeRead[]> {
+		return this.alleSeiten(
+			(limit, offset) => ({ content_type: contentType, limit, offset }),
+			`Knoten vom Typ ${contentType}`,
+		);
+	}
+
+	private async alleSeiten(
+		filter: (limit: number, offset: number) => Record<string, string | number>,
+		was: string,
+	): Promise<ContextNodeRead[]> {
 		const alle: ContextNodeRead[] = [];
 		for (let seite = 0; seite < MAX_SEITEN; seite++) {
 			const { json } = await this.http.send<ContextNodeRead[]>({
 				method: "GET",
 				path: "/context/nodes",
-				query: stundenFilter(groupId, SEITENGROESSE, seite * SEITENGROESSE),
+				query: filter(SEITENGROESSE, seite * SEITENGROESSE),
 			});
 			alle.push(...json);
 			if (json.length < SEITENGROESSE) return alle;
 		}
 		// Eine Plattform, die `offset` überginge, lieferte endlos dieselbe volle Seite.
-		throw new Error(`Mehr als ${MAX_SEITEN * SEITENGROESSE} Stundenknoten in Gruppe ${groupId}?`);
+		throw new Error(`Mehr als ${MAX_SEITEN * SEITENGROESSE} ${was}?`);
 	}
 
 	async lesson(nodeId: Uuid): Promise<LessonRead> {

@@ -1,5 +1,6 @@
 import type { LessonLinkedItem, LessonPhaseItem } from "../api/types";
 import { stableStringify } from "./hash";
+import { findeEintrag, type Eintrag, type Wertelisten } from "./wertelisten";
 
 /**
  * Die Phasenliste einer Stunde — gelesen aus `## Ablauf`, geschrieben dorthin und gemischt
@@ -433,11 +434,24 @@ export function ordnePhasenZu(server: Phase[], vault: VaultPhase[]): (Phase | un
 	return zuordnung.map((j) => (j === undefined ? undefined : server[j]));
 }
 
-/** Freitext — es sei denn, er lautet wie ein bisheriger Eintrag; dann bleibt dessen Verweis. */
-function alsVerweis(textWert: string | null, bisher: Verweis[]): Verweis | null {
+/**
+ * Freitext — es sei denn, er lautet wie ein bisheriger Eintrag; dann bleibt dessen Verweis.
+ * Ein **neuer** Wert, der einem Eintrag der Werteliste gleicht (Titel oder Alias), wird zum
+ * Verweis auf dessen Wissensknoten, wie bei einer Auswahl im Plattform-Editor.
+ *
+ * ⚠️ Nur ein neuer Wert: Ein unveränderter Freitext „Partnerarbeit" bleibt Freitext. Würde
+ * er beim Mischen zum Verweis, wiche jede solche Phase vom Serverstand ab — und jede
+ * vault-geänderte Notiz schickte Phasen mit, die niemand angefasst hat.
+ */
+function alsVerweis(textWert: string | null, bisher: Verweis[], liste: Eintrag[] = []): Verweis | null {
 	const t = (textWert ?? "").trim();
 	if (t === "") return null;
-	return bisher.find((b) => anzeige(b) === t) ?? { typ: "text", wert: t, node_id: null, titel: null };
+	const gleich = bisher.find((b) => anzeige(b) === t);
+	if (gleich) return gleich;
+	const eintrag = findeEintrag(liste, t);
+	return eintrag
+		? { typ: "node", wert: null, node_id: eintrag.id, titel: eintrag.titel }
+		: { typ: "text", wert: t, node_id: null, titel: null };
 }
 
 /**
@@ -445,7 +459,11 @@ function alsVerweis(textWert: string | null, bisher: Verweis[]): Verweis | null 
  * Felder, die die Darstellung im Vault ausdrückt; alles andere bleibt, wie es auf der
  * Plattform steht. Eine Zeile, die fehlt, ist eine gelöschte Phase — das ist gewollt.
  */
-export function mischePhasen(server: Phase[], vault: VaultPhase[]): PhaseNutzlast[] {
+export function mischePhasen(
+	server: Phase[],
+	vault: VaultPhase[],
+	wertelisten?: Wertelisten | null,
+): PhaseNutzlast[] {
 	const basis = ordnePhasenZu(server, vault);
 	return vault.map((v, i) => {
 		const alt = basis[i];
@@ -456,8 +474,12 @@ export function mischePhasen(server: Phase[], vault: VaultPhase[]): PhaseNutzlas
 		if (v.dauer_min !== undefined) p.dauer_min = v.dauer_min;
 		if (v.beschreibung !== undefined) p.beschreibung = v.beschreibung;
 		if (v.prio !== undefined) p.prio = v.prio;
-		if (v.sozialform !== undefined) p.sozialform = alsVerweis(v.sozialform, alt?.sozialform ? [alt.sozialform] : []);
-		if (v.methode !== undefined) p.methode = alsVerweis(v.methode, alt?.methode ? [alt.methode] : []);
+		if (v.sozialform !== undefined) {
+			p.sozialform = alsVerweis(v.sozialform, alt?.sozialform ? [alt.sozialform] : [], wertelisten?.sozialform);
+		}
+		if (v.methode !== undefined) {
+			p.methode = alsVerweis(v.methode, alt?.methode ? [alt.methode] : [], wertelisten?.methode);
+		}
 		if (v.material !== undefined) {
 			p.material = v.material
 				.map((m) => alsVerweis(m, alt?.material ?? []))

@@ -1,4 +1,5 @@
 import type { AusgeblendeteGruppe, GruppenEinstellung } from "./gruppen";
+import type { Wertelisten } from "./sync/wertelisten";
 
 export interface UpsSettings {
 	basisUrl: string;
@@ -15,6 +16,11 @@ export interface UpsSettings {
 	basisOrdner: string;
 	gruppen: GruppenEinstellung[];
 	ausgeblendet: AusgeblendeteGruppe[];
+	/**
+	 * Sozialformen und Methoden der Plattform, beim letzten Sync geladen — damit der
+	 * Phasen-Editor auch offline Vorschläge hat. `null`, solange noch nie geladen.
+	 */
+	wertelisten: Wertelisten | null;
 	letzterSync: string | null;
 }
 
@@ -26,6 +32,7 @@ export const STANDARD_EINSTELLUNGEN: UpsSettings = {
 	basisOrdner: "",
 	gruppen: [],
 	ausgeblendet: [],
+	wertelisten: null,
 	letzterSync: null,
 };
 

@@ -10,6 +10,7 @@ import {
 	type VorhandeneNotiz,
 } from "./materialize";
 import { normalisierePhasen } from "./phasen";
+import { eintraegeAus, type Wertelisten } from "./wertelisten";
 import { planZusammenfassung, type SyncOp, type SyncPlan } from "./plan";
 import type { VaultAdapter } from "./vault-adapter";
 
@@ -29,6 +30,7 @@ export async function syncGruppe(
 	vault: VaultAdapter,
 	zuordnung: GruppenZuordnung,
 	dryRun: boolean,
+	wertelisten: Wertelisten | null = null,
 ): Promise<SyncErgebnis> {
 	const overview = await api.overview(zuordnung.groupId);
 	const stundenknoten = await holeStundenknoten(api, zuordnung.groupId, overview.slots);
@@ -48,6 +50,7 @@ export async function syncGruppe(
 		vorhanden,
 		stundenknoten,
 		lehrauftragVorlage: await leseVorlage(vault),
+		wertelisten,
 	});
 	const fehler: string[] = [];
 
@@ -179,6 +182,17 @@ async function holeStundenknoten(
 		}
 	}
 	return [...knoten.values()];
+}
+
+/**
+ * Sozialformen und Methoden der Plattform — einmal je Sync-Lauf, nicht je Gruppe: Es sind
+ * dieselben Listen für alle Gruppen.
+ */
+export async function ladeWertelisten(api: GgdApiClient): Promise<Wertelisten> {
+	return {
+		sozialform: eintraegeAus(await api.knotenVomTyp("sozialform")),
+		methode: eintraegeAus(await api.knotenVomTyp("methode")),
+	};
 }
 
 /** Ab dieser Plattformversion bleiben Nachbereitungsstatus und Marken beim Schreiben erhalten (P2). */

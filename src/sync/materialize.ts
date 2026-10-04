@@ -36,6 +36,7 @@ import {
 import { ersetzeFrontmatter } from "./frontmatter";
 import type { Rueckkanal, SyncOp, SyncPlan } from "./plan";
 import { kategorieZuUArt, slotZuUStand } from "./status";
+import type { Wertelisten } from "./wertelisten";
 
 /**
  * Die Materialisierung ist **rein**: Serverstand + vorhandene Notizen rein, Liste von
@@ -91,6 +92,8 @@ export interface MaterializeInput {
 	stundenknoten?: Stundenknoten[];
 	/** Inhalt von `System/Templates/Unterricht/Lehrauftrag-Template.md`, falls vorhanden. */
 	lehrauftragVorlage?: string | null;
+	/** Sozialformen und Methoden der Plattform — macht neue Werte im Rückkanal zu Verweisen. */
+	wertelisten?: Wertelisten | null;
 }
 
 /** Notizname des Lehrauftrags — Überschreibwert, sonst der Ordnername. */
@@ -375,7 +378,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 			// Nur der Vault hat sich bewegt. Was davon dem Rückkanal gehört (Ablauf,
 			// Stundenziel), geht zur Plattform; alles andere bleibt als Vault-Änderung stehen.
 			ops.push(
-				planeRueckschreiben(notiz.inhalt, slot, stunde, pfad) ?? {
+				planeRueckschreiben(notiz.inhalt, slot, stunde, pfad, input.wertelisten) ?? {
 					art: "unveraendert",
 					pfad,
 					grund: "nur Vault geändert — nichts davon gehört zum Rückkanal",
@@ -778,11 +781,12 @@ function planeRueckschreiben(
 	slot: SlotRead,
 	stunde: Stundenknoten | undefined,
 	pfad: string,
+	wertelisten?: Wertelisten | null,
 ): SyncOp | null {
 	const { frontmatter, body } = splitNote(plattformRegion(inhalt));
 	const ablauf = leseAblauf(body);
 	const serverPhasen = stunde?.phasen ?? [];
-	const phasen = ablauf ? mischePhasen(serverPhasen, ablauf.phasen) : null;
+	const phasen = ablauf ? mischePhasen(serverPhasen, ablauf.phasen, wertelisten) : null;
 	const phasenNeu = phasen !== null && !gleichePhasen(phasen, serverPhasen.map(nutzlast));
 
 	const felder = readFelder(frontmatter);

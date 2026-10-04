@@ -102,6 +102,26 @@ describe("Notizformat 7 — Zeitleiste und Knopfspalte", () => {
 	});
 });
 
+describe("Rückkanal — Wertelisten", () => {
+	it("schickt eine im Vault eingetragene Sozialform als Verweis auf den Wissensknoten", () => {
+		const vorhanden = alsVorhanden(lauf([], [knotenB(TABELLE)]));
+		bearbeite(vorhanden, ZWEITE, "| Einstieg | Video zeigen |  |", "| Einstieg | Video zeigen | partnerarbeit |");
+		const wertelisten = {
+			sozialform: [{ id: "s-pa", titel: "Partnerarbeit", aliase: [], subject_id: null }],
+			methode: [],
+		};
+		const plan = materialize({ zuordnung, overview: stand, vorhanden, stundenknoten: [knotenB(TABELLE)], wertelisten });
+		const op = opFuer(plan, ZWEITE);
+		expect(op?.art).toBe("zurueckschreiben");
+		expect(op?.rueckkanal?.stunde?.phasen?.[0]?.sozialform).toEqual({
+			typ: "node",
+			wert: null,
+			node_id: "s-pa",
+			titel: "Partnerarbeit",
+		});
+	});
+});
+
 describe("Rückkanal — planen", () => {
 	it("spiegelt die Phasen als Liste, solange sie nur Name und Dauer tragen", () => {
 		const n = notiz(alsVorhanden(lauf([])), ZWEITE);

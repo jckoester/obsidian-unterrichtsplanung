@@ -144,6 +144,9 @@ export interface ContextNodeRead {
 	updated_at: IsoDateTime;
 	/** Von der Liste gesetzt; `null` heißt „nicht geprüft", nicht „nein". */
 	darf_schreiben?: boolean | null;
+	/** Andere Namen (seit Plattform 0.13.1 wieder vollständig, aus `node_aliases`). */
+	aliase?: string[];
+	subject_id?: number | null;
 }
 
 export interface OverviewRead {

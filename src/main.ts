@@ -8,7 +8,7 @@ import { neueGruppen, zuordnungFuer } from "./gruppen";
 import { ladeEinstellungen, type UpsSettings } from "./settings";
 import { UpsSettingTab } from "./settings-tab";
 import { ObsidianVaultAdapter } from "./sync/obsidian-vault";
-import { syncGruppe } from "./sync/runner";
+import { ladeWertelisten, syncGruppe } from "./sync/runner";
 
 export default class UnterrichtsplanungSyncPlugin extends Plugin {
 	// `Plugin` deklariert selbst ein optionales `settings?: unknown`; hier wird es verengt.
@@ -87,11 +87,12 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 
 		this.zeigeStatus("Sync läuft …");
 		let fehlerhaft = 0;
+		await this.aktualisiereWertelisten();
 
 		for (const gruppe of this.settings.gruppen) {
 			const zuordnung = zuordnungFuer(this.settings.basisOrdner, gruppe);
 			try {
-				const ergebnis = await syncGruppe(this.api, this.vault, zuordnung, dryRun);
+				const ergebnis = await syncGruppe(this.api, this.vault, zuordnung, dryRun, this.settings.wertelisten);
 				console.info(`[UPS] Gruppe ${zuordnung.groupId}:`, ergebnis.plan.ops);
 
 				// Auch der scharfe Lauf zeigt sein Ergebnis: Eine Notice, die „12×
@@ -126,6 +127,19 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 			fehlerhaft > 0 ? `Sync: ${zeit} (${fehlerhaft} Fehler)` : `Sync: ${zeit}`,
 			fehlerhaft > 0,
 		);
+	}
+
+	/**
+	 * Sozialformen und Methoden neu laden. Scheitert es, bleiben die gemerkten Listen — der
+	 * Sync braucht sie nur, um neue Werte im Rückkanal zu Verweisen zu machen; ohne sie gehen
+	 * sie als Freitext, wie bisher.
+	 */
+	private async aktualisiereWertelisten(): Promise<void> {
+		try {
+			this.settings.wertelisten = await ladeWertelisten(this.api);
+		} catch (error) {
+			console.info("[UPS] Wertelisten nicht geladen, die gemerkten bleiben:", error);
+		}
 	}
 
 	/**
