@@ -123,6 +123,22 @@ describe("Ablauf — Tabelle lesen", () => {
 	});
 });
 
+describe("Ablauf — Tabelle mit Text darunter", () => {
+	it("liest eine Bemerkung unter der Tabelle nicht als Phase", () => {
+		const gelesen = leseAblauf(
+			ablauf([
+				"| Prio | Min | Phase |",
+				"| --- | --- | --- |",
+				"| Kern | 10 | Einstieg |",
+				"",
+				"Material liegt im Schrank.",
+			]),
+		);
+		expect(gelesen?.fehler).toEqual([]);
+		expect(gelesen?.phasen.map((p) => p.name)).toEqual(["Einstieg"]);
+	});
+});
+
 describe("Ablauf — Liste lesen", () => {
 	it("liest Dauer, Sozialform und Methode aus der Klammer und eingerückte Zeilen als Inhalt", () => {
 		const gelesen = leseAblauf(

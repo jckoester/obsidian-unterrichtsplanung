@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, Modal, Notice, Setting, TFile, type App, type Plugin } from "obsidian";
+import { AbstractInputSuggest, Modal, Notice, Setting, TFile, setIcon, type App, type Plugin } from "obsidian";
 import {
 	ablaufImText,
 	bearbeiteAblauf,
@@ -70,11 +70,8 @@ export function registrierePhasenknopf(plugin: Plugin, bearbeite: Bearbeite): vo
 		const frontmatter = plugin.app.metadataCache.getCache(ctx.sourcePath)?.frontmatter;
 		if (!frontmatter?.["uplan_slot_id"]) return;
 		for (const code of codes) {
-			const knopf = createEl("button", {
-				cls: "uplan-phasenknopf clickable-icon",
-				text: "✎",
-				attr: { "aria-label": "Phase bearbeiten" },
-			});
+			const knopf = createEl("button", { cls: "uplan-phasenknopf", attr: { "aria-label": "Phase bearbeiten" } });
+			setIcon(knopf, "pencil");
 			// Sonst geht die Zelle in der Live-Vorschau in den Bearbeitungsmodus.
 			const halt = (e: Event) => {
 				e.preventDefault();

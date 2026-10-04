@@ -98,6 +98,15 @@ describe("Ablauf bearbeiten — Tabelle", () => {
 		expect(neu).toContain(`${TABELLE[4]}\n| Kern | 5 | Ausblick |  |  |  |  | \`✎\` |\n\n<!-- uplan:ende -->`);
 	});
 
+	it("hängt die neue Zeile an die Tabelle, nicht hinter eine Bemerkung darunter", () => {
+		const neu = bearbeiteAblauf(notiz([...TABELLE, "", "Material liegt im Schrank."]), {
+			art: "anhaengen",
+			phase: { name: "Ausblick", dauer_min: 5, prio: "kern", beschreibung: null, sozialform: null, methode: null, material: [] },
+		});
+		expect(neu).toContain(`${TABELLE[4]}\n| Kern | 5 | Ausblick |  |  |  |  | \`✎\` |\n\nMaterial liegt im Schrank.`);
+		expect(ablaufImText(neu)?.ablauf.fehler).toEqual([]);
+	});
+
 	it("löscht die eine Zeile", () => {
 		const text = notiz(TABELLE);
 		const neu = bearbeiteAblauf(text, { art: "loeschen", nummer: 0, vorher: phaseAus(text, 0) });

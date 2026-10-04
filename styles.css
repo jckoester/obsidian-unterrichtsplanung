@@ -90,10 +90,18 @@
 
 .uplan-zeit-kopf {
 	display: flex;
-	flex-wrap: wrap;
+	align-items: flex-start;
 	gap: 0.4em;
 	color: var(--text-muted);
 	margin-bottom: 0.3em;
+}
+
+/* Die Angaben dürfen umbrechen, das + bleibt rechts in der ersten Zeile. */
+.uplan-zeit-angaben {
+	display: flex;
+	flex: 1 1 auto;
+	flex-wrap: wrap;
+	gap: 0.4em;
 }
 
 .uplan-zeit-trenner,
@@ -162,7 +170,7 @@
 }
 
 .uplan-zeit-neu {
-	margin-left: auto;
+	flex: 0 0 auto;
 	padding: 0 0.2em;
 	height: auto;
 }
@@ -178,10 +186,36 @@
 /*
  * Phasen-Editor (`src/phasen-editor.ts`): der Knopf in der Tabelle und der Dialog.
  */
-.uplan-phasenknopf {
-	padding: 0 0.3em;
+/* `button.` vorneweg: Obsidians eigene Regeln für Knöpfe setzen sonst Farbe und Hintergrund. */
+button.uplan-phasenknopf {
+	--icon-size: 13px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	height: auto;
-	font-size: var(--font-ui-small);
+	padding: 3px;
+	/* Nicht `--background-modifier-border`: Im dunklen Theme hat sie denselben Ton wie
+	   `--interactive-normal`, der Rahmen verschwände im Hintergrund. */
+	border: 1px solid var(--background-modifier-border-hover);
+	border-radius: var(--radius-s);
+	background: var(--interactive-normal);
+	box-shadow: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	vertical-align: middle;
+
+	/* Wie die Links im Kopf: Akzent statt `--interactive-hover`, das im dunklen Theme
+	   denselben Ton hat wie `--interactive-normal`. */
+	&:hover {
+		border-color: var(--interactive-accent);
+		background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
+		color: var(--text-normal);
+	}
+
+	&:active {
+		background: var(--interactive-accent);
+		color: var(--text-on-accent);
+	}
 }
 
 .uplan-phasen-editor {
@@ -210,5 +244,113 @@
 .uplan-vorschlag-alias {
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
+}
+
+/*
+ * Die Ablauf-Tabelle — erkannt an den Knöpfen, die das Plugin hineinsetzt. Nur diese
+ * Tabellen haben die feste Spaltenfolge des Syncs (Prio, Min, Phase, Inhalt, Sozialform,
+ * Methode, Material, Knopf); handgeschriebene bleiben, wie sie sind.
+ *
+ * Die Knopfspalte klebt am rechten Rand: Die Tabelle ist breiter als ein schmales Fenster,
+ * und in der Live-Vorschau scrollt das Tabellen-Widget waagrecht — ohne `sticky` läge der
+ * Knopf erst nach dem Scrollen im Bild.
+ *
+ * Der Vorsatz `:is(…)` hebt die Spezifität über Obsidians eigene Regel
+ * `.markdown-source-view.mod-cm6 .cm-table-widget td { position: relative }` — ohne ihn blieb
+ * die Zelle relativ positioniert und klebte nicht.
+ */
+:is(.markdown-source-view .cm-table-widget, .markdown-rendered) table:has(.uplan-phasenknopf) {
+	/*
+	 * Zum Ausprobieren überschreibbar, z. B. in einem Snippet:
+	 * body { --uplan-ablauf-schrift: 14px; --uplan-ablauf-zeile-alt: var(--background-modifier-hover); }
+	 */
+	font-size: var(--uplan-ablauf-schrift, small);
+	/* Obsidian setzt die Größe der Datenzellen eigens: `td { font-size: var(--table-text-size) }`. */
+	--table-text-size: var(--uplan-ablauf-schrift, small);
+
+	/* Der Kopf eine Stufe kleiner und ohne Linie darüber. */
+	& thead :is(th, td) {
+		font-size: smaller;
+		border-top-width: 0;
+	}
+
+	/* Versuch (Jan, 04.10.2026): keine senkrechten Linien, dafür Zeilen im Wechsel eingefärbt. */
+	& :is(th, td) {
+		border-left-width: 0;
+		border-right-width: 0;
+	}
+
+	& td:nth-child(1),
+	& td:nth-child(2) {
+		width: 1%;
+		white-space: nowrap;
+	}
+
+	/* Minuten rechtsbündig — die Zeile in der Live-Vorschau trägt den Inhalt im Wrapper. */
+	& :is(th, td):nth-child(2),
+	& :is(th, td):nth-child(2) .table-cell-wrapper {
+		text-align: right;
+	}
+
+	& td:nth-child(4) {
+		min-width: 12em;
+	}
+
+	/*
+	 * Die Knopfspalte: so schmal wie der Knopf. Obsidian gibt jeder Spalte eine Mindestbreite
+	 * (`--table-column-min-width`) und der Zelle 8 px Innenabstand je Seite — zusammen fast
+	 * fünfmal so breit wie das `✎`.
+	 */
+	& :is(th, td):last-child {
+		position: sticky;
+		right: 0;
+		z-index: 1;
+		width: 1%;
+		min-width: 0;
+		padding-inline: 0.2em;
+		background: var(--background-primary);
+		vertical-align: middle;
+	}
+
+	/* Der Knopf mittig in der Zeile. In der Live-Vorschau füllt der Wrapper die ganze Zelle. */
+	& :is(th, td):last-child .table-cell-wrapper {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding-inline: 0.2em;
+	}
+
+	/*
+	 * Zeilen im Wechsel eingefärbt — auf den Zellen, nicht auf der Zeile: Die klebende
+	 * Knopfzelle braucht einen deckenden Hintergrund, und der muss zur Zeile passen.
+	 */
+	& tbody tr:nth-child(even) > td {
+		background: var(--uplan-ablauf-zeile-alt, var(--background-secondary));
+	}
+}
+
+/*
+ * Live-Vorschau: Das Tabellen-Widget reicht auf beiden Seiten um `--table-drag-handle-size`
+ * (16 px) über die Textspalte hinaus — negativer Rand plus Innenabstand, Platz für Obsidians
+ * Ziehgriffe. Rechts schneiden wir diesen Streifen ab: So endet die Tabelle bündig mit der
+ * Textspalte und der Zeitleiste darüber, und die klebende Knopfspalte steht an derselben
+ * Kante. Im Streifen säße sonst nur Obsidians Knopf für eine neue Spalte — die gehört nicht
+ * in den Ablauf.
+ *
+ * Verworfen, weil gemessen: die Knopfzelle in den Streifen kleben lassen (dann stand die
+ * Tabelle 16 px über die Zeitleiste hinaus) und den Streifen abdecken (Schatten und Umriss
+ * zeichnet Chrome auf Zellen bei `border-collapse: collapse` nicht, ein Pseudo-Element mit
+ * `left: 100%` verbreiterte die scrollbare Fläche).
+ */
+.markdown-source-view .cm-table-widget:has(.uplan-phasenknopf) {
+	clip-path: inset(0 var(--table-drag-handle-size, 16px) 0 0);
+}
+
+.markdown-source-view .cm-table-widget table:has(.uplan-phasenknopf) :is(th, td):last-child {
+	/* 1 px über die Schnittkante: Die Zelle endet sonst mit Nachkommastellen knapp davor, und
+	   durch den Spalt schauen Splitter der Buchstaben dahinter. */
+	right: -1px;
+	/* Der Wrapper polstert in der Zelle; die Zelle selbst braucht hier keinen Abstand. */
+	padding-inline: 0 1px;
 }
 

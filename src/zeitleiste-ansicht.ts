@@ -57,7 +57,8 @@ class Zeitleiste extends MarkdownRenderChild {
 	private baue({ budget, fehler }: ZeitleisteDaten): void {
 		const leiste = this.containerEl.createDiv({ cls: "uplan-zeit" });
 
-		const kopf = leiste.createDiv({ cls: "uplan-zeit-kopf" });
+		const kopfzeile = leiste.createDiv({ cls: "uplan-zeit-kopf" });
+		const kopf = kopfzeile.createDiv({ cls: "uplan-zeit-angaben" });
 		kopf.createSpan({ text: `${budget.geplant}′ von ${budget.verfuegbar}′ verplant` });
 		kopf.createSpan({ cls: "uplan-zeit-trenner", text: "·" });
 		if (budget.ueberhang > 0) {
@@ -72,7 +73,7 @@ class Zeitleiste extends MarkdownRenderChild {
 				text: budget.ohneDauer === 1 ? "1 Phase ohne Dauer" : `${budget.ohneDauer} Phasen ohne Dauer`,
 			});
 		}
-		const neu = kopf.createEl("button", { cls: "uplan-zeit-neu clickable-icon", attr: { "aria-label": "Neue Phase" } });
+		const neu = kopfzeile.createEl("button", { cls: "uplan-zeit-neu clickable-icon", attr: { "aria-label": "Neue Phase" } });
 		setIcon(neu, "plus");
 		neu.addEventListener("click", () => this.bearbeite(this.pfad, "neu"));
 

@@ -229,8 +229,15 @@ export function leseAblauf(text: string): Ablauf | null {
 	const abschnitt = ablaufAbschnitt(text);
 	if (!abschnitt) return null;
 	const zeilen = ohneZeitleiste(abschnitt.zeilen).map((z, i) => ({ text: z, nr: abschnitt.start + 1 + i }));
-	const inhalt = zeilen.filter((z) => z.text.trim() !== "");
-	if (inhalt[0]?.text.trim().startsWith("|")) return leseTabelle(inhalt);
+	const beginn = zeilen.findIndex((z) => z.text.trim() !== "");
+	if (beginn !== -1 && (zeilen[beginn] as Zeile).text.trim().startsWith("|")) {
+		// Die Tabelle endet an der ersten Zeile, die keine Tabellenzeile ist — wie in Markdown.
+		// Eine Bemerkung darunter ist keine Phase; als Zeile gelesen, hielte ihre „Prio" (der
+		// ganze Satz) die Stunde beim Sync zurück.
+		let ende = beginn;
+		while (ende < zeilen.length && (zeilen[ende] as Zeile).text.trim().startsWith("|")) ende++;
+		return leseTabelle(zeilen.slice(beginn, ende));
+	}
 	return leseListe(zeilen);
 }
 
