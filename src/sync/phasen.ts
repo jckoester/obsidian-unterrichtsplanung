@@ -12,6 +12,20 @@ import { stableStringify } from "./hash";
 
 export const ABLAUF_UEBERSCHRIFT = "## Ablauf";
 
+/**
+ * Sprache des Codeblocks über dem Ablauf; das Plugin zeichnet daraus die Zeitleiste
+ * (Plan-Ablauf-Editor, B3). Beim Lesen wird er übergangen.
+ */
+export const ZEITLEISTE = "uplan-zeit";
+
+/**
+ * Inhalt der Knopfspalte rechts in der Tabelle — das Plugin macht daraus den Knopf, der den
+ * Phasen-Editor öffnet. Ein Inline-Code, weil Obsidian ihn in der Live-Vorschau dem Plugin
+ * zeigt; einen Knopf irgendwo sonst in der Zeile ließe das Tabellen-Widget nur über seinen
+ * internen Aufbau zu. Die Spalte hat keine Überschrift und wird beim Lesen übergangen.
+ */
+export const PHASENKNOPF = "`✎`";
+
 /** Freitext oder Verweis auf einen Baustein. */
 export type Verweis = LessonLinkedItem;
 
@@ -151,8 +165,8 @@ export function rendereAblauf(phasen: Phase[]): string[] {
 		);
 	}
 	const zeilen = [
-		"| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |",
-		"| --- | --- | --- | --- | --- | --- | --- |",
+		"| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |  |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- |",
 	];
 	for (const p of phasen) {
 		const zellen = [
@@ -164,7 +178,7 @@ export function rendereAblauf(phasen: Phase[]): string[] {
 			anzeige(p.methode),
 			p.material.map(anzeige).filter(Boolean).join(", "),
 		];
-		zeilen.push(`| ${zellen.map(zelle).join(" | ")} |`);
+		zeilen.push(`| ${zellen.map(zelle).join(" | ")} | ${PHASENKNOPF} |`);
 	}
 	return zeilen;
 }
@@ -189,9 +203,26 @@ export function ablaufAbschnitt(text: string): { start: number; ende: number; ze
 export function leseAblauf(text: string): Ablauf | null {
 	const abschnitt = ablaufAbschnitt(text);
 	if (!abschnitt) return null;
-	const inhalt = abschnitt.zeilen.filter((z) => z.trim() !== "");
+	const zeilen = ohneZeitleiste(abschnitt.zeilen);
+	const inhalt = zeilen.filter((z) => z.trim() !== "");
 	if (inhalt[0]?.trim().startsWith("|")) return leseTabelle(inhalt);
-	return leseListe(abschnitt.zeilen);
+	return leseListe(zeilen);
+}
+
+/**
+ * Der Zeitleisten-Block gehört zur Darstellung, nicht zum Ablauf. Stünde er noch in den
+ * Zeilen, hielte die Erkennung eine Tabelle für eine Liste (die erste Zeile wäre der Zaun),
+ * und unter einem Listenpunkt würden die Zaunzeilen zur Beschreibung.
+ *
+ * ⚠️ Fehlt der schließende Zaun, fällt nur die öffnende Zeile weg — nicht alles danach.
+ * Sonst läse der Rückkanal einen leeren Ablauf, und eine fehlende Zeile ist eine gelöschte
+ * Phase: Ein versehentlich gelöschtes ``` räumte die Stunde auf der Plattform leer.
+ */
+function ohneZeitleiste(zeilen: string[]): string[] {
+	const start = zeilen.findIndex((z) => z.trim() === "```" + ZEITLEISTE);
+	if (start === -1) return zeilen;
+	const ende = zeilen.findIndex((z, i) => i > start && z.trim() === "```");
+	return [...zeilen.slice(0, start), ...zeilen.slice(ende === -1 ? start + 1 : ende + 1)];
 }
 
 function ohneStreichung(name: string): string {

@@ -43,7 +43,8 @@ describe("Ablauf — Roundtrip", () => {
 
 	it("eine vollständige Planung ist zeichengleich und bleibt eine Tabelle", () => {
 		const zeilen = rendereAblauf(PLAN);
-		expect(zeilen[0]).toBe("| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |");
+		expect(zeilen[0]).toBe("| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |  |");
+		expect(zeilen.slice(2).every((z) => z.endsWith("| `✎` |"))).toBe(true);
 		const gelesen = leseAblauf(ablauf(zeilen));
 		expect(gelesen?.fehler).toEqual([]);
 		const nutzlast = mischePhasen(PLAN, gelesen?.phasen ?? []);
@@ -155,6 +156,51 @@ describe("Ablauf — Liste lesen", () => {
 
 	it("sagt nichts über die Phasen, wenn es keinen Abschnitt gibt", () => {
 		expect(leseAblauf("## Verlauf\n1. Alt\n")).toBeNull();
+	});
+});
+
+describe("Ablauf — Zeitleiste und Knopfspalte (NOTIZFORMAT 7)", () => {
+	const TABELLE = [
+		"| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |  |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- |",
+		"| Kern | 10 | Einstieg | Bilder zeigen | Plenum |  |  | `✎` |",
+		"| Übung | 25 | Erarbeitung |  | PA |  | AB | `✎` |",
+	];
+	const ohneKnopf = TABELLE.map((z) => z.replace(/ \| (?:`✎`)? \|$/, " |").replace(" | --- | --- |", " | --- |"));
+	const ZEITLEISTE = ["```uplan-zeit", "```", ""];
+
+	it("liest eine Tabelle unter der Zeitleiste als Tabelle", () => {
+		const gelesen = leseAblauf(ablauf([...ZEITLEISTE, ...TABELLE]));
+		expect(gelesen?.fehler).toEqual([]);
+		expect(gelesen?.phasen.map((p) => [p.name, p.prio, p.dauer_min])).toEqual([
+			["Einstieg", "kern", 10],
+			["Erarbeitung", "uebung", 25],
+		]);
+	});
+
+	it("liest eine Tabelle ohne Knopfspalte wie eine mit — Bestand bleibt lesbar", () => {
+		expect(ohneKnopf[0]).toBe("| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |");
+		expect(leseAblauf(ablauf(ohneKnopf))).toEqual(leseAblauf(ablauf(TABELLE)));
+	});
+
+	it("lässt sich von einer Spalte ohne Überschrift nicht verschieben, auch nicht links", () => {
+		const links = ohneKnopf.map((z, i) => (i === 1 ? `| --- ${z}` : `| ${i === 0 ? "" : "`✎`"} ${z}`));
+		expect(leseAblauf(ablauf(links))).toEqual(leseAblauf(ablauf(TABELLE)));
+	});
+
+	it("nimmt die Zaunzeilen unter einer Liste nicht in die Beschreibung", () => {
+		const gelesen = leseAblauf(ablauf(["1. Einstieg (10 min)", "   Bilder zeigen", ...ZEITLEISTE, "2. Erarbeitung"]));
+		expect(gelesen?.phasen.map((p) => [p.name, p.beschreibung])).toEqual([
+			["Einstieg", "Bilder zeigen"],
+			["Erarbeitung", undefined],
+		]);
+	});
+
+	// Eine fehlende Zeile ist eine gelöschte Phase. Verschluckte der fehlende Zaun den Rest,
+	// räumte der Rückkanal die Stunde auf der Plattform leer.
+	it("verliert ohne schließenden Zaun keine Phase", () => {
+		const gelesen = leseAblauf(ablauf(["```uplan-zeit", ...TABELLE]));
+		expect(gelesen?.phasen).toHaveLength(2);
 	});
 });
 

@@ -8,6 +8,7 @@ import { FixtureHttpClient } from "../src/api/http";
 import type { GruppenZuordnung } from "../src/sync/materialize";
 import { syncGruppe } from "../src/sync/runner";
 import { InMemoryVaultAdapter } from "../src/sync/vault-adapter";
+import { ablaufMit, LEERER_ABLAUF } from "./ablauf-hilfen";
 
 const zuordnung: GruppenZuordnung = {
 	groupId: 1,
@@ -329,7 +330,7 @@ describe("syncGruppe — Rückkanal", () => {
 	it("legt für einen gefüllten Platzhalter erst den Entwurf an, dann schreibt es", async () => {
 		const vault = new InMemoryVaultAdapter();
 		await syncGruppe(api(), vault, zuordnung, false);
-		await vault.write(ERSTE, (await vault.read(ERSTE)).replace("## Ablauf\n1.", "## Ablauf\n1. Einstieg (10 min)"));
+		await vault.write(ERSTE, (await vault.read(ERSTE)).replace(LEERER_ABLAUF, ablaufMit("1. Einstieg (10 min)")));
 		const { http, api: schreibend } = plattform({
 			[`POST /planning/slots/${stand.slots[0]!.id}/lesson`]: { id: NEU, neu: true },
 			[`PATCH /planning/lessons/${NEU}`]: { ...antwort, stundenziel: null, phasen: [{ id: "q1", name: "Einstieg", dauer_min: 10 }] },

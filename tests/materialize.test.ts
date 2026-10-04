@@ -4,6 +4,7 @@ import type { OverviewRead, SlotRead } from "../src/api/types";
 import { ALTE_VAULT_UEBERSCHRIFT, REGION_ENDE, VAULT_UEBERSCHRIFT } from "../src/sync/frontmatter";
 import { hashObject } from "../src/sync/hash";
 import { materialize, ZuordnungFehler, type GruppenZuordnung } from "../src/sync/materialize";
+import { ablaufMit, LEERER_ABLAUF } from "./ablauf-hilfen";
 
 const zuordnung: GruppenZuordnung = {
 	groupId: 1,
@@ -393,8 +394,8 @@ describe("materialize", () => {
 	it("schachtelt Codezäune nicht ineinander", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
 		stunde(vorhanden, ERSTE).inhalt = stunde(vorhanden, ERSTE).inhalt.replace(
-			"## Ablauf\n1.",
-			"## Ablauf\n1. Einstieg\n   ```\n   print(1)\n   ```",
+			LEERER_ABLAUF,
+			ablaufMit("1. Einstieg\n   ```\n   print(1)\n   ```"),
 		);
 		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
 		const konflikt = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
@@ -407,7 +408,7 @@ describe("materialize", () => {
 	it("rettet im Konflikt nur, was überschrieben wird — der eigene Abschnitt steht einmal da", () => {
 		const vorhanden = alsVorhanden(ersterLauf());
 		const eins = stunde(vorhanden, ERSTE);
-		eins.inhalt = mitEigenerZeile(eins.inhalt).replace("## Ablauf\n1.", "## Ablauf\n1. Von Hand");
+		eins.inhalt = mitEigenerZeile(eins.inhalt).replace(LEERER_ABLAUF, ablaufMit("1. Von Hand"));
 		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
 		const konflikt = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
 			(o) => o.art === "konflikt",

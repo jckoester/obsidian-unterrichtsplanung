@@ -20,6 +20,7 @@ import {
 	mischePhasen,
 	nutzlast,
 	rendereAblauf,
+	ZEITLEISTE,
 	type Phase,
 	type VaultPhase,
 } from "./phasen";
@@ -127,8 +128,9 @@ const KNOTEN_FELD = "uplan_node_id";
  * 4: `## Ablauf` aus den Phasen der Plattform; `UStand: Skizze`.
  * 5: eigener Callout `uplan-stunde` statt `journal-header` (Snippet `uplan.css` in `vault/`).
  * 6: Kopf als Codeblock `uplan-kopf`, vom Plugin gezeichnet, statt Callout mit DataviewJS.
+ * 7: Zeitleiste (`uplan-zeit`) unter `## Ablauf`, Knopfspalte `✎` rechts in der Tabelle.
  */
-const NOTIZFORMAT = 6;
+const NOTIZFORMAT = 7;
 
 /** Höchstens so viele Rückschreibungen je Lauf — jede legt einen Snapshot an, die Plattform hält 50 je Gruppe. */
 export const RUECKSCHREIBUNGEN_JE_LAUF = 10;
@@ -637,6 +639,9 @@ export function baueStundennotiz(
 		"",
 		...(slot.note?.trim() ? ["## Hinweise", slot.note.trim(), ""] : []),
 		"## Ablauf",
+		// Die Zeitleiste auch über dem leeren Platzhalter — nicht aber über einem Entwurf, den
+		// das Plugin nicht lesen kann: „0′ geplant“ wäre dort eine falsche Auskunft.
+		...(stunde || !slot.stunde_node_id ? ["```" + ZEITLEISTE, "```", ""] : []),
 		...(stunde
 			? rendereAblauf(stunde.phasen)
 			: slot.stunde_node_id

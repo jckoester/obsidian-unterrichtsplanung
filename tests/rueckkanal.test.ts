@@ -12,6 +12,7 @@ import {
 } from "../src/sync/materialize";
 import { normalisierePhasen } from "../src/sync/phasen";
 import type { SyncPlan } from "../src/sync/plan";
+import { ablaufMit, LEERER_ABLAUF } from "./ablauf-hilfen";
 
 const zuordnung: GruppenZuordnung = {
 	groupId: 1,
@@ -75,10 +76,36 @@ function opFuer(plan: SyncPlan, pfad: string) {
 	return plan.ops.find((o) => o.pfad === pfad && o.art !== "umbenennen");
 }
 
+describe("Notizformat 7 — Zeitleiste und Knopfspalte", () => {
+	it("schreibt die Zeitleiste unter „## Ablauf“ und die Knopfspalte in jede Zeile", () => {
+		const n = notiz(alsVorhanden(lauf([], [knotenB(TABELLE)])), ZWEITE);
+		expect(n.inhalt).toContain("## Ablauf\n```uplan-zeit\n```\n\n| Prio |");
+		expect(n.inhalt).toContain("| Einstieg | Video zeigen |  |  |  | `✎` |");
+		expect(notiz(alsVorhanden(lauf([], [knotenB(TABELLE)])), ERSTE).inhalt).toContain(LEERER_ABLAUF);
+	});
+
+	it("schreibt über einen unlesbaren Entwurf keine Zeitleiste — „0′ geplant“ wäre falsch", () => {
+		const n = notiz(alsVorhanden(lauf([], [])), ZWEITE);
+		expect(n.inhalt).toContain("nicht lesbar");
+		expect(n.inhalt).not.toContain("uplan-zeit");
+	});
+
+	it("hält eine gelöschte Knopfspalte oder Zeitleiste nicht für eine Änderung", () => {
+		const vorhanden = alsVorhanden(lauf([], [knotenB(TABELLE)]));
+		const n = notiz(vorhanden, ZWEITE);
+		n.inhalt = n.inhalt
+			.replace("```uplan-zeit\n```\n\n", "")
+			.replace(/ \| (?:`✎`)? \|$/gm, " |")
+			.replace("| --- | --- | --- | --- | --- | --- | --- | --- |", "| --- | --- | --- | --- | --- | --- | --- |");
+		expect(n.inhalt).not.toContain("✎");
+		expect(opFuer(lauf(vorhanden, [knotenB(TABELLE)]), ZWEITE)?.art).toBe("unveraendert");
+	});
+});
+
 describe("Rückkanal — planen", () => {
 	it("spiegelt die Phasen als Liste, solange sie nur Name und Dauer tragen", () => {
 		const n = notiz(alsVorhanden(lauf([])), ZWEITE);
-		expect(n.inhalt).toContain("## Ablauf\n1. Einstieg (5 min)\n2. Erarbeitung (25 min)\n");
+		expect(n.inhalt).toContain(ablaufMit("1. Einstieg (5 min)\n2. Erarbeitung (25 min)\n"));
 	});
 
 	it("schreibt eine geänderte Skizze zurück — mit Kennungen, Stempel und nur dem, was sich änderte", () => {
@@ -131,7 +158,7 @@ describe("Rückkanal — planen", () => {
 
 	it("legt für einen gefüllten Platzhalter einen Entwurf an", () => {
 		const vorhanden = alsVorhanden(lauf([]));
-		bearbeite(vorhanden, ERSTE, "## Ablauf\n1.", "## Ablauf\n1. Einstieg (10 min)");
+		bearbeite(vorhanden, ERSTE, LEERER_ABLAUF, ablaufMit("1. Einstieg (10 min)"));
 		const op = opFuer(lauf(vorhanden), ERSTE);
 		expect(op?.art).toBe("zurueckschreiben");
 		expect(op?.rueckkanal?.knotenId).toBeNull();
@@ -280,7 +307,7 @@ describe("Rückkanal — nach dem Schreiben", () => {
 
 	it("schreibt die Kennung eines neu angelegten Entwurfs in die Notiz", () => {
 		const vorhanden = alsVorhanden(lauf([]));
-		bearbeite(vorhanden, ERSTE, "## Ablauf\n1.", "## Ablauf\n1. Einstieg (10 min)");
+		bearbeite(vorhanden, ERSTE, LEERER_ABLAUF, ablaufMit("1. Einstieg (10 min)"));
 		const neuerKnoten = { ...gespeichert([{ id: null, name: "Einstieg", dauer_min: 10 }]), id: "cccccccc-3333-4333-8333-cccccccccccc", stundenziel: null };
 		const n = notiz(vorhanden, ERSTE);
 		n.inhalt = nachDemZurueckschreiben({
