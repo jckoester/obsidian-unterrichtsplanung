@@ -88,20 +88,45 @@ describe("Rückkanal — planen", () => {
 
 		expect(op?.art).toBe("zurueckschreiben");
 		expect(op?.rueckkanal?.knotenId).toBe(B);
-		expect(op?.rueckkanal?.nutzlast.expected_updated_at).toBe(STEMPEL);
-		expect(op?.rueckkanal?.nutzlast.phasen?.map((p) => [p.id, p.name, p.dauer_min])).toEqual([
+		expect(op?.rueckkanal?.stunde?.expected_updated_at).toBe(STEMPEL);
+		expect(op?.rueckkanal?.stunde?.phasen?.map((p) => [p.id, p.name, p.dauer_min])).toEqual([
 			["p1", "Einstieg", 5],
 			["p2", "Erarbeitung", 20],
 			[null, "Sicherung", null],
 		]);
-		expect(op?.rueckkanal?.nutzlast).not.toHaveProperty("stundenziel");
+		expect(op?.rueckkanal?.stunde).not.toHaveProperty("stundenziel");
 	});
 
 	it("schreibt ein geändertes Stundenziel zurück, ohne die Phasen anzufassen", () => {
 		const vorhanden = alsVorhanden(lauf([]));
 		bearbeite(vorhanden, ZWEITE, "Stundenziel: Übersetzungen berechnen", "Stundenziel: Übersetzungen sicher berechnen");
 		const op = opFuer(lauf(vorhanden), ZWEITE);
-		expect(op?.rueckkanal?.nutzlast).toEqual({ stundenziel: "Übersetzungen sicher berechnen", expected_updated_at: STEMPEL });
+		expect(op?.rueckkanal?.stunde).toEqual({ stundenziel: "Übersetzungen sicher berechnen", expected_updated_at: STEMPEL });
+	});
+
+	it("schreibt geänderte Inhalte an den Termin, mit dessen Stempel", () => {
+		const vorhanden = alsVorhanden(lauf([]));
+		bearbeite(vorhanden, ZWEITE, "Inhalte: Klassenarbeit 1", "Inhalte: Klassenarbeit 1 — Getriebe");
+		const op = opFuer(lauf(vorhanden), ZWEITE);
+		expect(op?.art).toBe("zurueckschreiben");
+		expect(op?.rueckkanal?.termin).toEqual({ thema: "Klassenarbeit 1 — Getriebe", expected_updated_at: stand.slots[1]!.updated_at });
+		expect(op?.rueckkanal?.stunde).toBeUndefined();
+		expect(op?.grund).toBe("Inhalte");
+	});
+
+	it("leert das Thema mit null, wenn Inhalte leer werden", () => {
+		const vorhanden = alsVorhanden(lauf([]));
+		bearbeite(vorhanden, ZWEITE, "Inhalte: Klassenarbeit 1", "Inhalte:");
+		expect(opFuer(lauf(vorhanden), ZWEITE)?.rueckkanal?.termin?.thema).toBeNull();
+	});
+
+	it("schreibt Inhalte auch an einen Platzhalter, ohne einen Entwurf anzulegen", () => {
+		const vorhanden = alsVorhanden(lauf([]));
+		bearbeite(vorhanden, ERSTE, "Inhalte: Getriebe und Übersetzung", "Inhalte: Getriebe im Alltag");
+		const op = opFuer(lauf(vorhanden), ERSTE);
+		expect(op?.rueckkanal?.termin?.thema).toBe("Getriebe im Alltag");
+		expect(op?.rueckkanal?.stunde).toBeUndefined();
+		expect(op?.grund).not.toContain("neuer Entwurf");
 	});
 
 	it("legt für einen gefüllten Platzhalter einen Entwurf an", () => {
@@ -111,12 +136,12 @@ describe("Rückkanal — planen", () => {
 		expect(op?.art).toBe("zurueckschreiben");
 		expect(op?.rueckkanal?.knotenId).toBeNull();
 		expect(op?.grund).toContain("neuer Entwurf");
-		expect(op?.rueckkanal?.nutzlast).not.toHaveProperty("expected_updated_at");
+		expect(op?.rueckkanal?.stunde).not.toHaveProperty("expected_updated_at");
 	});
 
 	it("lässt eine Änderung an einem read-only Feld als Vault-Änderung stehen", () => {
 		const vorhanden = alsVorhanden(lauf([]));
-		bearbeite(vorhanden, ZWEITE, "Inhalte: Klassenarbeit 1", "Inhalte: Klassenarbeit eins");
+		bearbeite(vorhanden, ZWEITE, "UArt: Prüfung", "UArt: Unterricht");
 		const op = opFuer(lauf(vorhanden), ZWEITE);
 		expect(op?.art).toBe("unveraendert");
 		expect(op?.grund).toContain("nichts davon gehört zum Rückkanal");
@@ -195,7 +220,7 @@ describe("Rückkanal — nach dem Schreiben", () => {
 
 	function schreibeUndPruefe(vorhanden: Notiz[]) {
 		const op = opFuer(lauf(vorhanden), ZWEITE);
-		const nachher = gespeichert(op?.rueckkanal?.nutzlast.phasen);
+		const nachher = gespeichert(op?.rueckkanal?.stunde?.phasen);
 		const n = notiz(vorhanden, ZWEITE);
 		n.inhalt = nachDemZurueckschreiben({
 			zuordnung,
@@ -223,10 +248,34 @@ describe("Rückkanal — nach dem Schreiben", () => {
 	it("gemeindet eine Änderung an einem read-only Feld nicht ein", () => {
 		const vorhanden = alsVorhanden(lauf([]));
 		bearbeite(vorhanden, ZWEITE, "(25 min)", "(20 min)");
-		bearbeite(vorhanden, ZWEITE, "Inhalte: Klassenarbeit 1", "Inhalte: Klassenarbeit eins");
+		bearbeite(vorhanden, ZWEITE, "UArt: Prüfung", "UArt: Unterricht");
 		const { nachher } = schreibeUndPruefe(vorhanden);
 		const zweit = opFuer(lauf(vorhanden, [nachher]), ZWEITE);
 		expect(zweit?.grund).toContain("nichts davon gehört zum Rückkanal");
+	});
+
+	it("trägt nach geschriebenen Inhalten den neuen Stempel ein — der nächste Lauf ist ruhig", () => {
+		const vorhanden = alsVorhanden(lauf([]));
+		bearbeite(vorhanden, ZWEITE, "Inhalte: Klassenarbeit 1", "Inhalte: Klassenarbeit 1 — Getriebe");
+		const n = notiz(vorhanden, ZWEITE);
+		const vaultAblauf = opFuer(lauf(vorhanden), ZWEITE)?.rueckkanal?.vaultAblauf;
+		const neuerStempel = "2026-10-04T08:00:00.000001Z";
+		n.inhalt = nachDemZurueckschreiben({
+			zuordnung,
+			overview: stand,
+			inhalt: n.inhalt,
+			slotId: stand.slots[1]!.id,
+			stunde: knotenB(),
+			termin: { thema: "Klassenarbeit 1 — Getriebe", updated_at: neuerStempel },
+			vaultAblauf,
+		});
+		expect(n.inhalt).toContain(`uplan_updated_at: "${neuerStempel}"`);
+		const danach = structuredClone(stand);
+		danach.slots[1]!.thema = "Klassenarbeit 1 — Getriebe";
+		danach.slots[1]!.updated_at = neuerStempel;
+		const zweit = opFuer(lauf(vorhanden, [knotenB()], danach), ZWEITE);
+		expect(zweit?.art).toBe("unveraendert");
+		expect(zweit?.grund).toBeUndefined();
 	});
 
 	it("schreibt die Kennung eines neu angelegten Entwurfs in die Notiz", () => {

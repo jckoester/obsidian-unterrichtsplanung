@@ -89,7 +89,9 @@ export async function syncGruppe(
 		// Erst die Dateien, dann der Rückkanal: Danach schreibt er die Buchführung in die
 		// Notiz, und die soll dann schon dort liegen, wo der Plan sie hinlegt.
 		const rueck = plan.ops.filter((op) => op.art === "zurueckschreiben");
-		if (rueck.length > 0) fehler.push(...(await schreibeZurueck(api, vault, zuordnung, overview, rueck)));
+		if (rueck.length > 0) {
+			fehler.push(...(await schreibeZurueck(api, vault, zuordnung, overview, stundenknoten, rueck)));
+		}
 	}
 
 	return {
@@ -182,7 +184,10 @@ export function versionReicht(version: string, mindestens = MINDESTVERSION): boo
 }
 
 /**
- * Schreibt Ablauf und Stundenziel zur Plattform und danach die Buchführung in die Notiz.
+ * Schreibt zur Plattform und danach die Buchführung in die Notiz: erst das Thema an den
+ * Termin, dann Ablauf und Stundenziel an den Entwurf. In dieser Reihenfolge, weil das
+ * Anlegen eines Entwurfs den Stempel des Slots weiterrückt — das Thema danach liefe in einen
+ * 409 gegen den eigenen Schritt.
  *
  * Vorher einmal `/health`: Unter 0.13 ginge beim Schreiben der Nachbereitungsstatus der
  * Phasen verloren, ohne dass das Plugin es merken könnte. Dann wird nur gelesen.
@@ -195,6 +200,7 @@ async function schreibeZurueck(
 	vault: VaultAdapter,
 	zuordnung: GruppenZuordnung,
 	overview: OverviewRead,
+	gelesen: Stundenknoten[],
 	ops: SyncOp[],
 ): Promise<string[]> {
 	const fehler: string[] = [];
@@ -212,23 +218,32 @@ async function schreibeZurueck(
 		const rueckkanal = op.rueckkanal;
 		if (!rueckkanal) continue;
 		try {
-			let id = rueckkanal.knotenId;
-			let nutzlast = rueckkanal.nutzlast;
-			if (!id) {
-				id = (await api.entwurfFuerSlot(rueckkanal.slotId)).id;
-				// Der Entwurf ist eben erst entstanden — es gibt keinen Stand, gegen den
-				// sich etwas geändert haben könnte.
-				const { expected_updated_at: _ohneStempel, ...ohne } = nutzlast;
-				nutzlast = ohne;
+			let termin: { thema: string | null; updated_at: string } | undefined;
+			if (rueckkanal.termin) {
+				const slot = await api.patchSlot(rueckkanal.slotId, rueckkanal.termin);
+				termin = { thema: slot.thema, updated_at: slot.updated_at };
 			}
-			const antwort = await api.patchLesson(id, nutzlast);
-			const stunde: Stundenknoten = {
-				id,
-				stundenziel: antwort.stundenziel,
-				phasen: normalisierePhasen(antwort.phasen),
-				updated_at: antwort.updated_at,
-				darf_schreiben: true,
-			};
+
+			let stunde = gelesen.find((k) => k.id === rueckkanal.knotenId);
+			if (rueckkanal.stunde) {
+				let id = rueckkanal.knotenId;
+				let nutzlast = rueckkanal.stunde;
+				if (!id) {
+					id = (await api.entwurfFuerSlot(rueckkanal.slotId)).id;
+					// Der Entwurf ist eben erst entstanden — es gibt keinen Stand, gegen den
+					// sich etwas geändert haben könnte.
+					const { expected_updated_at: _ohneStempel, ...ohne } = nutzlast;
+					nutzlast = ohne;
+				}
+				const antwort = await api.patchLesson(id, nutzlast);
+				stunde = {
+					id,
+					stundenziel: antwort.stundenziel,
+					phasen: normalisierePhasen(antwort.phasen),
+					updated_at: antwort.updated_at,
+					darf_schreiben: true,
+				};
+			}
 			const inhalt = await vault.read(op.pfad);
 			await vault.write(
 				op.pfad,
@@ -238,6 +253,7 @@ async function schreibeZurueck(
 					inhalt,
 					slotId: rueckkanal.slotId,
 					stunde,
+					termin,
 					vaultAblauf: rueckkanal.vaultAblauf,
 				}),
 			);

@@ -144,10 +144,11 @@ export interface OverviewRead {
 	unterrichtsfreie_tage?: unknown[];
 }
 
-/** Nur die Felder, die dem Vault gehören dürfen (Stufe 2). */
+/** Nur die Felder, die dem Vault gehören dürfen. Zurückgeschrieben wird nur `thema`. */
 export interface SlotUpdate {
 	kategorie?: string;
-	thema?: string;
+	/** `null` leert das Thema (die Plattform setzt nur, was mitkommt). */
+	thema?: string | null;
 	note?: string;
 	/** Optimistisches Sperren: 409 statt stillem Überschreiben. */
 	expected_updated_at?: IsoDateTime;

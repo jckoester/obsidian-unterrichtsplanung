@@ -157,6 +157,8 @@ describe("materialize", () => {
 		expect(zweite).toContain('UEinheit: "[[UE1 - Mechanische Übertragung]]"');
 		expect(zweite).not.toContain("UStatus");
 		expect(zweite).not.toContain("INPUT[");
+		expect(zweite).toContain(">[!uplan-stunde]");
+		expect(zweite).not.toContain("journal-header");
 	});
 
 	it("schreibt keinen Wikilink auf eine Nachbarstunde — die Navigation rechnet Dataview", () => {
@@ -385,26 +387,45 @@ describe("materialize", () => {
 		expect(op?.grund).toBeUndefined();
 	});
 
+	// Ein Codezaun im geretteten Teil beendete sonst den Zaun des Konfliktblocks — der Rest
+	// der Notiz rutschte in den Fließtext. Seit der Block nur noch den Plattform-Teil rettet,
+	// kommt ein Zaun von dort: etwa aus einer Beschreibung im Ablauf.
 	it("schachtelt Codezäune nicht ineinander", () => {
-		const { konflikt, serverstand, vorhanden } = konfliktLauf();
-		const danach = vorhanden.map((v) =>
-			v.pfad === konflikt.pfad
-				? {
-						pfad: v.pfad,
-						inhalt: (konflikt.inhalt as string).replace(
-							"## Ablauf",
-							"## Ablauf\n1. Und noch etwas",
-						),
-					}
-				: v,
+		const vorhanden = alsVorhanden(ersterLauf());
+		stunde(vorhanden, ERSTE).inhalt = stunde(vorhanden, ERSTE).inhalt.replace(
+			"## Ablauf\n1.",
+			"## Ablauf\n1. Einstieg\n   ```\n   print(1)\n   ```",
 		);
-		const nochmal = structuredClone(serverstand);
-		nochmal.slots[0]!.thema = "Getriebe, drittens";
-		const zweiter = materialize({ zuordnung, overview: nochmal, vorhanden: danach }).ops.find(
+		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
+		const konflikt = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
 			(o) => o.art === "konflikt",
 		);
-		expect(zweiter?.inhalt).toContain("````markdown");
-		expect(zweiter?.inhalt).toContain("```markdown");
+		expect(konflikt?.inhalt).toContain("````markdown");
+		expect(konflikt?.inhalt).toContain("   ```\n   print(1)");
+	});
+
+	it("rettet im Konflikt nur, was überschrieben wird — der eigene Abschnitt steht einmal da", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		const eins = stunde(vorhanden, ERSTE);
+		eins.inhalt = mitEigenerZeile(eins.inhalt).replace("## Ablauf\n1.", "## Ablauf\n1. Von Hand");
+		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
+		const konflikt = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
+			(o) => o.art === "konflikt",
+		);
+		expect(konflikt?.inhalt).toContain("1. Von Hand");
+		expect(konflikt?.inhalt?.split("Material liegt im Schrank.")).toHaveLength(2);
+	});
+
+	it("rettet im Konflikt auch Inhalte und Stundenziel aus dem Vault", () => {
+		const vorhanden = alsVorhanden(ersterLauf());
+		const eins = stunde(vorhanden, ERSTE);
+		eins.inhalt = eins.inhalt.replace("Inhalte: Getriebe und Übersetzung", "Inhalte: Getriebe, von Hand");
+		const geaendert = variante((s) => (s[0]!.thema = "Getriebe, Teil 2"));
+		const konflikt = materialize({ zuordnung, overview: geaendert, vorhanden }).ops.find(
+			(o) => o.art === "konflikt",
+		);
+		expect(konflikt?.inhalt).toContain("Inhalte: Getriebe, Teil 2"); // der neue Stand
+		expect(konflikt?.inhalt).toContain("markdown\nInhalte: Getriebe, von Hand"); // im Block gerettet
 	});
 
 	it("benennt um statt zu duplizieren, wenn sich das Datum verschiebt", () => {

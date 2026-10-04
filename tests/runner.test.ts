@@ -333,6 +333,23 @@ describe("syncGruppe — Rückkanal", () => {
 		expect(await vault.read(ERSTE)).toContain(`uplan_node_id: ${NEU}`);
 	});
 
+	it("schreibt erst das Thema an den Termin, dann den Ablauf an den Entwurf", async () => {
+		const vault = await mitBearbeiteterStunde();
+		await vault.write(ZWEITE, (await vault.read(ZWEITE)).replace("Inhalte: Klassenarbeit 1", "Inhalte: Klassenarbeit 1 — Getriebe"));
+		const slot = { ...stand.slots[1]!, thema: "Klassenarbeit 1 — Getriebe", updated_at: "2026-10-04T08:00:00.000001Z" };
+		const { http, api: schreibend } = plattform({ [`PATCH /planning/slots/${slot.id}`]: slot });
+		const ergebnis = await syncGruppe(schreibend, vault, zuordnung, false);
+		expect(ergebnis.fehler).toEqual([]);
+
+		const geschrieben = http.calls.filter((c) => c.method !== "GET").map((c) => `${c.method} ${c.path}`);
+		expect(geschrieben).toEqual([`PATCH /planning/slots/${slot.id}`, `PATCH /planning/lessons/${B}`]);
+		expect(http.calls.find((c) => c.path.startsWith("/planning/slots/"))?.body).toEqual({
+			thema: "Klassenarbeit 1 — Getriebe",
+			expected_updated_at: stand.slots[1]!.updated_at,
+		});
+		expect(await vault.read(ZWEITE)).toContain('uplan_updated_at: "2026-10-04T08:00:00.000001Z"');
+	});
+
 	it("zeigt im Probelauf, was zurückginge, und schickt nichts", async () => {
 		const vault = await mitBearbeiteterStunde();
 		const { http, api: schreibend } = plattform();

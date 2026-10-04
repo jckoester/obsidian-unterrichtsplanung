@@ -33,7 +33,7 @@ import {
 	type LehrauftragKontext,
 } from "./notizen";
 import { ersetzeFrontmatter } from "./frontmatter";
-import type { SyncOp, SyncPlan } from "./plan";
+import type { Rueckkanal, SyncOp, SyncPlan } from "./plan";
 import { kategorieZuUArt, slotZuUStand } from "./status";
 
 /**
@@ -125,8 +125,9 @@ const KNOTEN_FELD = "uplan_node_id";
  * 2: `UArt`/`UStand` statt `UStatus`, Dateiname aus dem Datum, `## Ablauf`, `## Notizen`.
  * 3: `Stundenziel` im Frontmatter.
  * 4: `## Ablauf` aus den Phasen der Plattform; `UStand: Skizze`.
+ * 5: eigener Callout `uplan-stunde` statt `journal-header` (Snippet `uplan.css` in `vault/`).
  */
-const NOTIZFORMAT = 4;
+const NOTIZFORMAT = 5;
 
 /** Höchstens so viele Rückschreibungen je Lauf — jede legt einen Snapshot an, die Plattform hält 50 je Gruppe. */
 export const RUECKSCHREIBUNGEN_JE_LAUF = 10;
@@ -642,11 +643,13 @@ export function baueStundennotiz(
 		uplan_status: "aktiv",
 	};
 
+	// Eigene Callout-Typen statt `journal-header`: Der stammt aus den täglichen Notizen des
+	// PKM-Vaults, und beides soll sich unabhängig gestalten lassen (`vault/.obsidian/snippets/uplan.css`).
 	const kopf = [
-		">[!journal-header]",
+		">[!uplan-stunde]",
 		">## `=this.Lehrauftrag`",
 		`># ${datumDeutsch(slot.date)}`,
-		">>[!journal-header-links]",
+		">>[!uplan-stunde-links]",
 		`>>${NAVIGATION}`,
 	].join("\n");
 
@@ -784,6 +787,10 @@ function zurueckgehalten(pfad: string, grund: string): SyncOp {
  * Plattform genau die Basis, aus der die Notiz gerendert wurde, und die Vault-Zeilen lassen
  * sich ihm zuordnen.
  *
+ * Zwei Ziele: Ablauf und Stundenziel gehen an den Entwurf, `Inhalte` an den Termin (das
+ * Thema des Slots). Zurückgehalten wird nur, was den Entwurf betrifft — ein Thema lässt
+ * sich auch dann schreiben, wenn der Entwurf nicht lesbar ist.
+ *
  * `null`, wenn nichts davon dem Rückkanal gehört — dann war es eine Änderung an einem
  * read-only Feld, und die bleibt als Vault-Änderung stehen.
  */
@@ -799,37 +806,45 @@ function planeRueckschreiben(
 	const phasen = ablauf ? mischePhasen(serverPhasen, ablauf.phasen) : null;
 	const phasenNeu = phasen !== null && !gleichePhasen(phasen, serverPhasen.map(nutzlast));
 
-	const zielWert = readFelder(frontmatter)["Stundenziel"];
-	const ziel = typeof zielWert === "string" ? zielWert.trim() : "";
+	const felder = readFelder(frontmatter);
+	const text = (key: string) => {
+		const wert = felder[key];
+		return typeof wert === "string" ? wert.trim() : "";
+	};
+	const ziel = text("Stundenziel");
 	const zielNeu = ziel !== (stunde?.stundenziel ?? "").trim();
+	const thema = text("Inhalte");
+	const themaNeu = thema !== (slot.thema ?? "").trim();
+	const entwurfNeu = phasenNeu || zielNeu;
 
-	if (!phasenNeu && !zielNeu && !ablauf?.fehler.length) return null;
-	if (slot.stunde_node_id && !stunde) return zurueckgehalten(pfad, "Entwurf auf der Plattform nicht lesbar");
-	if (ablauf && ablauf.fehler.length > 0) return zurueckgehalten(pfad, ablauf.fehler.join("; "));
-	if (stunde?.darf_schreiben === false) return zurueckgehalten(pfad, "Entwurf ist auf der Plattform nur lesbar");
+	if (!entwurfNeu && !themaNeu && !ablauf?.fehler.length) return null;
+	if (entwurfNeu || ablauf?.fehler.length) {
+		if (slot.stunde_node_id && !stunde) return zurueckgehalten(pfad, "Entwurf auf der Plattform nicht lesbar");
+		if (ablauf && ablauf.fehler.length > 0) return zurueckgehalten(pfad, ablauf.fehler.join("; "));
+		if (stunde?.darf_schreiben === false) return zurueckgehalten(pfad, "Entwurf ist auf der Plattform nur lesbar");
+	}
 
-	const nutzlastNeu: LessonUpdate = {};
-	if (phasenNeu) nutzlastNeu.phasen = phasen;
-	// Ein leerer String leert das Stundenziel; `null` ließe es stehen.
-	if (zielNeu) nutzlastNeu.stundenziel = ziel;
-	if (stunde?.updated_at) nutzlastNeu.expected_updated_at = stunde.updated_at;
+	const rueckkanal: Rueckkanal = { slotId: slot.id, knotenId: slot.stunde_node_id, vaultAblauf: ablauf?.phasen ?? null };
+	if (entwurfNeu) {
+		const nutzlastNeu: LessonUpdate = {};
+		if (phasenNeu) nutzlastNeu.phasen = phasen;
+		// Ein leerer String leert das Stundenziel; `null` ließe es stehen.
+		if (zielNeu) nutzlastNeu.stundenziel = ziel;
+		if (stunde?.updated_at) nutzlastNeu.expected_updated_at = stunde.updated_at;
+		rueckkanal.stunde = nutzlastNeu;
+	}
+	if (themaNeu) {
+		// Hier umgekehrt: `null` leert das Thema, die Plattform setzt nur, was mitkommt.
+		rueckkanal.termin = { thema: thema || null, expected_updated_at: slot.updated_at };
+	}
 
 	const was = [
-		...(slot.stunde_node_id ? [] : ["neuer Entwurf"]),
+		...(entwurfNeu && !slot.stunde_node_id ? ["neuer Entwurf"] : []),
 		...(phasenNeu ? [`${phasen?.length ?? 0} Phasen`] : []),
 		...(zielNeu ? ["Stundenziel"] : []),
+		...(themaNeu ? ["Inhalte"] : []),
 	];
-	return {
-		art: "zurueckschreiben",
-		pfad,
-		rueckkanal: {
-			slotId: slot.id,
-			knotenId: slot.stunde_node_id,
-			nutzlast: nutzlastNeu,
-			vaultAblauf: ablauf?.phasen ?? null,
-		},
-		grund: was.join(", "),
-	};
+	return { art: "zurueckschreiben", pfad, rueckkanal, grund: was.join(", ") };
 }
 
 export interface NachDemZurueckschreiben {
@@ -838,8 +853,13 @@ export interface NachDemZurueckschreiben {
 	/** Die Notiz, wie sie jetzt in der Datei steht. */
 	inhalt: string;
 	slotId: string;
-	/** Der Stand nach dem Schreiben — aus der Antwort der Plattform (0.13, P3). */
-	stunde: Stundenknoten;
+	/**
+	 * Der Entwurf nach dem Schreiben — aus der Antwort der Plattform (0.13, P3). Wurde nur
+	 * das Thema geschrieben, der Entwurf, wie er beim Lesen war.
+	 */
+	stunde?: Stundenknoten;
+	/** Thema und Stempel des Termins nach dem Schreiben, falls `Inhalte` mitging. */
+	termin?: { thema: string | null; updated_at: string };
 	/** Der Ablauf, wie er beim Planen im Vault stand (`Rueckkanal.vaultAblauf`). */
 	vaultAblauf: unknown;
 }
@@ -851,23 +871,32 @@ export interface NachDemZurueckschreiben {
  *
  * Der neue `uplan_hash` entsteht aus der Notiz, wie sie aus dem Serverstand gerendert
  * würde, mit dem Ablauf aus dem Vault. Stimmt der Rest der Notiz damit überein, ist sie
- * danach unverändert. Hat jemand ein read-only Feld geändert (etwa `Inhalte`), bleibt das
+ * danach unverändert. Hat jemand ein read-only Feld geändert (etwa `UArt`), bleibt das
  * als Vault-Änderung sichtbar, statt eingemeindet und beim nächsten Serverstand still
  * überschrieben zu werden.
+ *
+ * Aus der Antwort auf das Termin-PATCH zählen nur `thema` und `updated_at` — `hat_phasen`
+ * berechnet dort niemand.
  */
 export function nachDemZurueckschreiben(args: NachDemZurueckschreiben): string {
 	const vorher = args.overview.slots.find((s) => s.id === args.slotId);
 	if (!vorher) return args.inhalt;
-	const slot: SlotRead = { ...vorher, stunde_node_id: args.stunde.id };
+	const slot: SlotRead = {
+		...vorher,
+		...(args.termin ? { thema: args.termin.thema, updated_at: args.termin.updated_at } : {}),
+		stunde_node_id: args.stunde?.id ?? vorher.stunde_node_id,
+	};
 	const unit = slot.ue_node_id ? args.overview.units.find((u) => u.id === slot.ue_node_id) : undefined;
 	const serverHash = hashObject(serverNutzlast(slot, unit, args.stunde));
 	const ideal = struktur(baueStundennotiz(args.zuordnung, slot, unit, args.stunde, serverHash, ""));
-	return setzeFelder(args.inhalt, {
-		UStand: slotZuUStand(slot, args.stunde.phasen),
-		uplan_node_id: args.stunde.id,
+	const felder: Record<string, string | null> = {
+		UStand: slotZuUStand(slot, args.stunde?.phasen),
+		uplan_updated_at: slot.updated_at,
 		uplan_server_hash: serverHash,
 		uplan_hash: STRUKTUR + hashObject({ ...ideal, ablauf: args.vaultAblauf ?? null }),
-	});
+	};
+	if (args.stunde) felder["uplan_node_id"] = args.stunde.id;
+	return setzeFelder(args.inhalt, felder);
 }
 
 function setzeStatusArchiviert(inhalt: string): string {
@@ -883,10 +912,27 @@ function setzeStatusArchiviert(inhalt: string): string {
 	return /^uplan_hash:/m.test(mitStatus) ? setzeHash(mitStatus) : mitStatus;
 }
 
+/** Felder im Frontmatter, die der Vault zurückschreiben darf — und die ein Konflikt deshalb retten muss. */
+const RUECKKANAL_FELDER = ["Inhalte", "Stundenziel"] as const;
+
+/**
+ * Gerettet wird nur, was der neue Stand überschreibt: der alte Plattform-Teil des Rumpfs
+ * und die Frontmatter-Felder, die der Vault beschreiben darf. Der eigene Abschnitt hinter
+ * `REGION_ENDE` bleibt ohnehin erhalten — ihn auch in den Block zu kopieren hieße, ihn
+ * doppelt in der Notiz stehen zu haben.
+ */
 function mitKonfliktblock(neu: string, alt: string): string {
-	const alterRumpf = splitNote(alt).body.trim();
-	const zaun = "`".repeat(laengsterZaun(alterRumpf) + 1);
-	return `${neu.trimEnd()}\n\n> [!warning] Sync-Konflikt\n> Die Plattform hatte den neueren Stand. Die vorherige Vault-Fassung steht unten und wird beim nächsten Sync nicht angefasst.\n\n${zaun}markdown\n${alterRumpf}\n${zaun}\n`;
+	const { frontmatter, body } = splitNote(plattformRegion(alt));
+	const gelesen = readFelder(frontmatter);
+	const felder: Record<string, FrontmatterValue> = {};
+	for (const key of RUECKKANAL_FELDER) {
+		const wert = gelesen[key];
+		if (typeof wert === "string" && wert.trim() !== "") felder[key] = wert;
+	}
+	const kopf = Object.keys(felder).length > 0 ? `${renderFrontmatter(felder).split("\n").slice(1, -1).join("\n")}\n\n` : "";
+	const gerettet = `${kopf}${body.trim()}`;
+	const zaun = "`".repeat(laengsterZaun(gerettet) + 1);
+	return `${neu.trimEnd()}\n\n> [!warning] Sync-Konflikt\n> Die Plattform hatte den neueren Stand. Die vorherige Vault-Fassung steht unten und wird beim nächsten Sync nicht angefasst.\n\n${zaun}markdown\n${gerettet}\n${zaun}\n`;
 }
 
 /**

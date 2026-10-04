@@ -54,7 +54,8 @@ views:
     filters:
       and:
         - if(Datum, date(Datum) >= today(), false)
-        - UStand == "Platzhalter"
+        - UStand != "Geplant"
+        - UStand != "Gehalten"
         - UArt != "Entfall"
     order:
       - file.name

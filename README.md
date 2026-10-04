@@ -88,8 +88,8 @@ read-only.
 
 ### Rückkanal
 
-Zurück zur Plattform gehen `## Ablauf` (als Tabelle oder als schnelle Liste) und das
-Stundenziel — nur, wenn sich die Plattform seit dem letzten Lauf nicht geändert hat, und
+Zurück zur Plattform gehen `## Ablauf` (als Tabelle oder als schnelle Liste), das
+Stundenziel und `Inhalte` (das Thema des Termins) — nur, wenn sich die Plattform seit dem letzten Lauf nicht geändert hat, und
 nur ab Plattform 0.13.0 (`/health`). Der Text der Notiz bleibt danach, wie er ist. Was die
 Plattform ablehnen würde, wird zurückgehalten und im Ergebnisfenster gemeldet; höchstens
 zehn Stunden je Lauf.

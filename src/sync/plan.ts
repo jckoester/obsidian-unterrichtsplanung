@@ -1,4 +1,4 @@
-import type { LessonUpdate } from "../api/types";
+import type { LessonUpdate, SlotUpdate } from "../api/types";
 
 export type SyncOpArt =
 	| "erstellen"
@@ -11,13 +11,18 @@ export type SyncOpArt =
 	| "unveraendert";
 
 /**
- * Was der Runner zur Plattform schickt. `knotenId: null` heißt: Der Termin hat noch keinen
- * Entwurf — er wird erst angelegt, dann beschrieben.
+ * Was der Runner zur Plattform schickt — an zwei Stellen, weil die Notiz zwei Dinge
+ * spiegelt: Ablauf und Stundenziel gehören dem Entwurf (`stunde`), das Thema (`Inhalte`)
+ * dem Termin (`termin`). Fehlt eine Nutzlast, wird dort nichts geschrieben.
+ *
+ * `knotenId: null` mit einer `stunde`-Nutzlast heißt: Der Termin hat noch keinen Entwurf —
+ * er wird erst angelegt, dann beschrieben.
  */
 export interface Rueckkanal {
 	slotId: string;
 	knotenId: string | null;
-	nutzlast: LessonUpdate;
+	stunde?: LessonUpdate;
+	termin?: SlotUpdate;
 	/**
 	 * Der Ablauf, wie er beim Planen im Vault stand. Nach dem Schreiben wird der Hash damit
 	 * gebildet, nicht mit dem, was dann in der Datei steht: Hat jemand in der Zwischenzeit
