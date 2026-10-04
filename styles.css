@@ -10,3 +10,68 @@
 	font-size: var(--font-ui-smaller);
 }
 .ups-feld-warnung { border-color: var(--text-warning); }
+
+/*
+ * Kopf der Stundennotiz (Codeblock `uplan-kopf`, gezeichnet in `src/kopf-ansicht.ts`).
+ * Das Aussehen folgt dem journal-header der täglichen Notizen im PKM-Vault. Hier statt in
+ * einem Snippet: Das Plugin bringt seine Gestaltung mit, und im Testvault wirkt jede
+ * Änderung sofort — der Pluginordner ist ein Symlink auf dieses Repo, hot-reload lädt neu.
+ */
+.uplan-kopf {
+	padding: 0.2em 0;
+	border-top: 1px solid var(--text-muted);
+	border-bottom: 1px solid var(--text-muted);
+	text-align: center;
+}
+
+.uplan-kopf-lehrauftrag {
+	color: var(--text-faint);
+	font-size: 1.25rem;
+}
+
+.uplan-kopf-datum {
+	font-size: var(--h1-size);
+	font-weight: var(--h1-weight);
+	line-height: var(--h1-line-height);
+	color: var(--h1-color);
+}
+
+.uplan-kopf-navigation {
+	display: flex;
+	gap: 0.2rem 0.3rem;
+	justify-content: center;
+	align-items: center;
+	flex-wrap: wrap;
+	padding: 0.2rem 0;
+	border-top: solid thin var(--hr-color);
+}
+
+.uplan-kopf-trenner {
+	color: var(--text-faint);
+}
+
+.uplan-kopf-navigation a {
+	border: solid thin;
+	display: block;
+	line-height: 1rem;
+	border-radius: 0.5rem;
+	padding-inline: 0.5rem;
+	height: fit-content;
+	text-decoration: none;
+
+	&:link,
+	&:visited,
+	&:hover,
+	&:active {
+		text-decoration: none !important;
+	}
+
+	&:hover {
+		background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
+	}
+
+	&:active {
+		color: var(--background-primary);
+		background: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
+	}
+}

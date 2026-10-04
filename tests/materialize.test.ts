@@ -153,18 +153,18 @@ describe("materialize", () => {
 		const zweite = stundenOps(ersterLauf())[1]?.inhalt ?? "";
 		expect(zweite).toContain("UArt: Prüfung");
 		expect(zweite).toContain("UStand: Geplant");
-		expect(zweite).toContain("># 22.09.2026");
 		expect(zweite).toContain('UEinheit: "[[UE1 - Mechanische Übertragung]]"');
 		expect(zweite).not.toContain("UStatus");
 		expect(zweite).not.toContain("INPUT[");
-		expect(zweite).toContain(">[!uplan-stunde]");
 		expect(zweite).not.toContain("journal-header");
 	});
 
-	it("schreibt keinen Wikilink auf eine Nachbarstunde — die Navigation rechnet Dataview", () => {
+	it("schreibt nur den Kopf-Codeblock, keinen Link auf eine Nachbarstunde — die zeichnet das Plugin", () => {
 		for (const op of stundenOps(ersterLauf())) {
 			expect(op.inhalt).not.toMatch(/\[\[NwT 9 2026/);
-			expect(op.inhalt).toContain(">>`$= (() => {");
+			expect(op.inhalt).toContain("---\n```uplan-kopf\n```\n");
+			expect(op.inhalt).not.toContain("$=");
+			expect(op.inhalt).not.toContain("[!uplan-stunde");
 		}
 	});
 

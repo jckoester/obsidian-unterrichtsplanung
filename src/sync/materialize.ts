@@ -1,4 +1,5 @@
 import type { LessonUpdate, OverviewRead, SlotRead, UnitRead } from "../api/types";
+import { KOPF_SPRACHE } from "../kopf";
 import { hashObject } from "./hash";
 import {
 	REGION_ENDE,
@@ -25,7 +26,6 @@ import {
 import {
 	baueLehrauftragsnotiz,
 	baueUeRumpf,
-	datumDeutsch,
 	slugify,
 	ueFelder,
 	ueNutzlast,
@@ -126,8 +126,9 @@ const KNOTEN_FELD = "uplan_node_id";
  * 3: `Stundenziel` im Frontmatter.
  * 4: `## Ablauf` aus den Phasen der Plattform; `UStand: Skizze`.
  * 5: eigener Callout `uplan-stunde` statt `journal-header` (Snippet `uplan.css` in `vault/`).
+ * 6: Kopf als Codeblock `uplan-kopf`, vom Plugin gezeichnet, statt Callout mit DataviewJS.
  */
-const NOTIZFORMAT = 5;
+const NOTIZFORMAT = 6;
 
 /** Höchstens so viele Rückschreibungen je Lauf — jede legt einen Snapshot an, die Plattform hält 50 je Gruppe. */
 export const RUECKSCHREIBUNGEN_JE_LAUF = 10;
@@ -595,27 +596,6 @@ export function stundenPfade(zuordnung: GruppenZuordnung, slots: SlotRead[]): Ma
 	return pfade;
 }
 
-/**
- * Vor- und Zurück-Link als DataviewJS, zur Anzeigezeit berechnet.
- *
- * Das alte Skript schrieb die Nachbarn als Text in jede Notiz. Dann müsste der Sync bei
- * jeder Verschiebung bis zu drei Notizen nachziehen — genau die Schreiblast, die der
- * Dateiname aus dem Datum vermeiden soll. So schreibt er keine einzige Navigationszeile.
- * Sortiert wird nach Dateiname, der mit dem ISO-Datum beginnt.
- *
- * Als sofort ausgeführte Funktion, weil Dataview einen Inline-Ausdruck erwartet.
- */
-const NAVIGATION = [
-	"`$= (() => {",
-	"const c = dv.current();",
-	`const s = dv.pages('"' + c.file.folder + '"')`,
-	`.where(p => p.uplan_slot_id && p.uplan_status != "archiviert")`,
-	".sort(p => p.file.name).array();",
-	"const i = s.findIndex(p => p.file.path == c.file.path);",
-	`return (s[i - 1] ? s[i - 1].file.link : "") + " ← " + (c.UEinheit ?? "") + " → " + (s[i + 1] ? s[i + 1].file.link : "");`,
-	"})()`",
-].join(" ");
-
 export function baueStundennotiz(
 	zuordnung: GruppenZuordnung,
 	slot: SlotRead,
@@ -643,15 +623,10 @@ export function baueStundennotiz(
 		uplan_status: "aktiv",
 	};
 
-	// Eigene Callout-Typen statt `journal-header`: Der stammt aus den täglichen Notizen des
-	// PKM-Vaults, und beides soll sich unabhängig gestalten lassen (`vault/.obsidian/snippets/uplan.css`).
-	const kopf = [
-		">[!uplan-stunde]",
-		">## `=this.Lehrauftrag`",
-		`># ${datumDeutsch(slot.date)}`,
-		">>[!uplan-stunde-links]",
-		`>>${NAVIGATION}`,
-	].join("\n");
+	// Lehrauftrag, Datum und die Links zu den Nachbarstunden zeichnet das Plugin zur
+	// Anzeigezeit (`src/kopf.ts`). In der Notiz steht nur der leere Codeblock: Nachbarlinks
+	// im Text müsste der Sync bei jeder Verschiebung in bis zu drei Notizen nachziehen.
+	const kopf = ["```" + KOPF_SPRACHE, "```"].join("\n");
 
 	const eigen = eigenerTeil.trim() || VAULT_UEBERSCHRIFT;
 

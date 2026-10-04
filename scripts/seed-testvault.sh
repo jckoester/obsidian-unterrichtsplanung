@@ -66,7 +66,7 @@ pfad.write_text(json.dumps(sorted(set(vorhanden) | set(gewuenscht)), indent=2) +
 print(f"community-plugins.json: {len(gewuenscht)} Einträge")
 PY
 
-# Die Navigationszeile der Stundennotiz ist Inline-DataviewJS. Ohne diese Schalter zeigt der
+# Die Statistik im Lehrauftrag-Template ist DataviewJS. Ohne diese Schalter zeigt der
 # Testvault „(disabled; enable in settings)", während sie im PKM-Vault läuft. Übernommen
 # werden nur die Schalter, nicht die ganze data.json (siehe oben).
 python3 - "$QUELLE" "$ZIEL" <<'PY'
@@ -80,19 +80,6 @@ daten = json.loads(ziel.read_text()) if ziel.exists() else {}
 daten.update(werte)
 ziel.write_text(json.dumps(daten, indent=2) + "\n")
 print(f"Dataview: {werte}")
-PY
-
-# Das Snippet für den Kopf der Stundennotizen kommt mit `vault/` — eingeschaltet werden muss
-# es eigens, sonst liegt es nur da.
-python3 - "$ZIEL" <<'PY'
-import json, pathlib, sys
-pfad = pathlib.Path(sys.argv[1]) / ".obsidian" / "appearance.json"
-daten = json.loads(pfad.read_text()) if pfad.exists() else {}
-snippets = daten.setdefault("enabledCssSnippets", [])
-if "uplan" not in snippets:
-    snippets.append("uplan")
-pfad.write_text(json.dumps(daten, indent=2) + "\n")
-print("Snippet uplan eingeschaltet")
 PY
 
 echo "Fertig. Vault in Obsidian öffnen: $ZIEL"

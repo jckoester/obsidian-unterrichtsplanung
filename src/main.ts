@@ -2,6 +2,7 @@ import { Notice, Plugin, requestUrl } from "obsidian";
 import { GgdApiClient } from "./api/client";
 import { RequestUrlHttpClient } from "./api/http";
 import { SyncErgebnisModal } from "./dryrun-modal";
+import { registriereKopf } from "./kopf-ansicht";
 import { STANDARD_EINSTELLUNGEN, type UpsSettings } from "./settings";
 import { UpsSettingTab } from "./settings-tab";
 import { ObsidianVaultAdapter } from "./sync/obsidian-vault";
@@ -31,6 +32,7 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 		this.zeigeStatus(this.settings.letzterSync ? `Sync: ${this.settings.letzterSync}` : "Sync: nie");
 
 		this.addSettingTab(new UpsSettingTab(this.app, this));
+		registriereKopf(this);
 
 		this.addCommand({
 			id: "sync-alle-gruppen",
