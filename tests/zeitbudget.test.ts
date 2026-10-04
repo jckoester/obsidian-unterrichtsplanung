@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { leseAblauf } from "../src/sync/phasen";
-import { verfuegbareMinuten, zeitbudget, zeitspanne } from "../src/zeitbudget";
+import { balken, ERSATZ_MINUTEN, verfuegbareMinuten, zeitbudget, zeitleisteAus, zeitspanne } from "../src/zeitbudget";
 
 describe("Zeitbudget", () => {
 	it("rechnet geplant, frei und die Zeitspannen", () => {
@@ -100,3 +100,74 @@ describe("Zeitspanne", () => {
 		expect(zeitspanne(null, 10)).toBe("–");
 	});
 });
+
+describe("Zeitleiste aus der Notiz", () => {
+	const notiz = (ablauf: string[], uStunden = "2") =>
+		[
+			"---",
+			`UStunden: ${uStunden}`,
+			"uplan_slot_id: s1",
+			"---",
+			"```uplan-kopf",
+			"```",
+			"",
+			"## Ablauf",
+			"```uplan-zeit",
+			"```",
+			"",
+			...ablauf,
+			"",
+			"<!-- uplan:ende -->",
+			"",
+			"## Notizen",
+			"## Ablauf",
+			"1. Das hier gehört dem Vault (90 min)",
+		].join("\n");
+	const TABELLE = [
+		"| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |  |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- |",
+		"| Kern | 20 | Einstieg |  |  |  |  | `✎` |",
+		"| Übung | 40 | Erarbeitung |  |  |  |  | `✎` |",
+	];
+
+	it("liest Ablauf und UStunden aus der Plattform-Region, nicht aus dem eigenen Teil", () => {
+		const daten = zeitleisteAus(notiz(TABELLE));
+		expect(daten?.budget).toMatchObject({ verfuegbar: 90, geplant: 60, frei: 30 });
+		expect(daten?.fehler).toEqual([]);
+	});
+
+	// Die Zeitleiste sagt es gleich — der Sync hielte die Stunde sonst erst zurück.
+	it("zeigt, was die Plattform ablehnen würde", () => {
+		const daten = zeitleisteAus(notiz([...TABELLE, "| Wichtig | 10 | Sicherung |  |  |  |  | `✎` |"]));
+		expect(daten?.fehler).toEqual(["Phase 3: Prio „Wichtig“ unbekannt"]);
+	});
+
+	it("gibt ohne Ablauf nichts", () => {
+		expect(zeitleisteAus("---\nUStunden: 1\n---\nNur Text")).toBeNull();
+	});
+});
+
+describe("Balken", () => {
+	const summe = (anteile: number[]) => anteile.reduce((a, b) => a + b, 0);
+
+	it("füllt die verfügbare Zeit und lässt den Rest frei", () => {
+		const { teile, ziel } = balken(zeitbudget([{ name: "A", dauer_min: 9 }, { name: "B", dauer_min: 18 }], 45));
+		expect(teile.map((t) => [t.art, Math.round(t.anteil)])).toEqual([["phase", 20], ["phase", 40], ["frei", 40]]);
+		expect(ziel).toBe(100);
+	});
+
+	it("misst einen Überhang an der geplanten Zeit — ohne freien Rest, die Ziellinie mittendrin", () => {
+		const { teile, ziel } = balken(zeitbudget([{ name: "A", dauer_min: 30 }, { name: "B", dauer_min: 30 }], 45));
+		expect(teile.map((t) => t.art)).toEqual(["phase", "phase"]);
+		expect(summe(teile.map((t) => t.anteil))).toBeCloseTo(100);
+		expect(ziel).toBe(75);
+	});
+
+	it("gibt einer Phase ohne Dauer eine schmale, aber sichtbare Breite", () => {
+		const { teile } = balken(zeitbudget([{ name: "A", dauer_min: 10 }, { name: "B", dauer_min: null }], 45));
+		expect(teile[1]).toMatchObject({ art: "phase", nummer: 1 });
+		expect(teile[1]?.anteil).toBeCloseTo((ERSATZ_MINUTEN / 45) * 100);
+		expect(summe(teile.map((t) => t.anteil))).toBeCloseTo(100);
+	});
+});
+

@@ -75,3 +75,89 @@
 		background: hsl(var(--accent-h), var(--accent-s), var(--accent-l));
 	}
 }
+
+/*
+ * Zeitleiste unter „## Ablauf“ (Codeblock `uplan-zeit`, gezeichnet in
+ * `src/zeitleiste-ansicht.ts`). Die Prio-Farben sind die der Plattform (`PRIO_COLORS` in
+ * `lib/planner.js`), damit eine Phase auf beiden Seiten gleich aussieht.
+ */
+.uplan-zeit {
+	--uplan-kern: #4a7fb5;
+	--uplan-uebung: #5ba37a;
+	--uplan-vertiefung: #b07fb8;
+	font-size: var(--font-ui-small);
+}
+
+.uplan-zeit-kopf {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.4em;
+	color: var(--text-muted);
+	margin-bottom: 0.3em;
+}
+
+.uplan-zeit-trenner,
+.uplan-zeit-hinweis {
+	color: var(--text-faint);
+}
+
+.uplan-zeit-ueberhang {
+	color: var(--text-error);
+	font-weight: var(--font-semibold);
+}
+
+.uplan-zeit-balken {
+	position: relative;
+	display: flex;
+	height: 1.6em;
+	border-radius: var(--radius-s);
+	overflow: hidden;
+	background: var(--background-modifier-border);
+}
+
+.uplan-zeit-phase {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	padding-inline: 0.3em;
+	color: white;
+	border-right: 1px solid var(--background-primary);
+	overflow: hidden;
+
+	& > span {
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+	}
+
+	&.mod-kern { background: var(--uplan-kern); }
+	&.mod-uebung { background: var(--uplan-uebung); }
+	&.mod-vertiefung { background: var(--uplan-vertiefung); }
+	&.mod-ohne-prio { background: var(--text-faint); }
+
+	/* Ohne Dauer: schraffiert — sie belegt keine Minuten, nur Platz. */
+	&.mod-ohne-dauer {
+		background-image: repeating-linear-gradient(
+			45deg,
+			transparent 0 4px,
+			rgba(255, 255, 255, 0.35) 4px 8px
+		);
+	}
+}
+
+.uplan-zeit-frei {
+	background: transparent;
+}
+
+.uplan-zeit-ziel {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	border-left: 2px solid var(--text-error);
+}
+
+.uplan-zeit-fehler {
+	margin: 0.3em 0 0;
+	color: var(--text-error);
+}
+

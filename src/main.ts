@@ -3,6 +3,7 @@ import { GgdApiClient } from "./api/client";
 import { RequestUrlHttpClient } from "./api/http";
 import { SyncErgebnisModal } from "./dryrun-modal";
 import { registriereKopf } from "./kopf-ansicht";
+import { registriereZeitleiste } from "./zeitleiste-ansicht";
 import { neueGruppen, zuordnungFuer } from "./gruppen";
 import { ladeEinstellungen, type UpsSettings } from "./settings";
 import { UpsSettingTab } from "./settings-tab";
@@ -34,6 +35,7 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 
 		this.addSettingTab(new UpsSettingTab(this.app, this));
 		registriereKopf(this);
+		registriereZeitleiste(this);
 
 		this.addCommand({
 			id: "sync-alle-gruppen",

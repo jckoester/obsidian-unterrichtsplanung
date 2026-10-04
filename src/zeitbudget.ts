@@ -9,6 +9,9 @@
  * kein Ende mehr angeben.
  */
 
+import { plattformRegion, readFelder, splitNote } from "./sync/frontmatter";
+import { leseAblauf } from "./sync/phasen";
+
 /** Was das Zeitbudget von einer Phase braucht. In einer Liste fehlt die Prio. */
 export interface ZeitPhase {
 	name: string;
@@ -86,3 +89,59 @@ export function zeitbudget(phasen: ZeitPhase[], verfuegbar: number): Zeitbudget 
 		abschnitte,
 	};
 }
+
+/** Was die Zeitleiste zeigt: das Budget und, was die Plattform am Ablauf ablehnen würde. */
+export interface ZeitleisteDaten {
+	budget: Zeitbudget;
+	fehler: string[];
+}
+
+/**
+ * Die Zeitleiste aus dem Text einer Stundennotiz; `null`, wenn sie keinen Ablauf hat.
+ * Gelesen wird wie im Rückkanal — nur die Plattform-Region, mit `leseAblauf` —, damit die
+ * Zeitleiste zeigt, was beim nächsten Sync zur Plattform ginge. Die Fehler gleich mit: Eine
+ * unbekannte Prio hält sonst erst beim Sync die ganze Stunde zurück.
+ */
+export function zeitleisteAus(inhalt: string): ZeitleisteDaten | null {
+	const { frontmatter, body } = splitNote(plattformRegion(inhalt));
+	const ablauf = leseAblauf(body);
+	if (!ablauf) return null;
+	const minuten = verfuegbareMinuten(readFelder(frontmatter)["UStunden"]);
+	return { budget: zeitbudget(ablauf.phasen, minuten), fehler: ablauf.fehler };
+}
+
+/**
+ * Breite einer Phase ohne Dauer im Balken, als wären es so viele Minuten: sichtbar und
+ * anklickbar, aber erkennbar schmal. Der Balken wird dadurch um ein paar Minuten ungenau —
+ * die Zahlen darüber rechnen sie nicht mit.
+ */
+export const ERSATZ_MINUTEN = 3;
+
+export interface BalkenTeil {
+	art: "phase" | "frei";
+	/** Stelle der Phase im Ablauf; fehlt beim freien Rest. */
+	nummer?: number;
+	/** Breite in Prozent des Balkens. */
+	anteil: number;
+}
+
+export interface Balken {
+	teile: BalkenTeil[];
+	/** Wo die verfügbare Zeit endet, in Prozent — bei einem Überhang mitten im Balken. */
+	ziel: number;
+}
+
+/** Die Abschnitte des Balkens: eine je Phase, dahinter der freie Rest. */
+export function balken(budget: Zeitbudget): Balken {
+	const breite = (a: ZeitAbschnitt) => a.dauer ?? ERSATZ_MINUTEN;
+	const belegt = budget.abschnitte.reduce((summe, a) => summe + breite(a), 0);
+	const gesamt = Math.max(belegt, budget.verfuegbar, 1);
+	const teile: BalkenTeil[] = budget.abschnitte.map((a, nummer) => ({
+		art: "phase",
+		nummer,
+		anteil: (breite(a) / gesamt) * 100,
+	}));
+	if (belegt < gesamt) teile.push({ art: "frei", anteil: ((gesamt - belegt) / gesamt) * 100 });
+	return { teile, ziel: (budget.verfuegbar / gesamt) * 100 };
+}
+
