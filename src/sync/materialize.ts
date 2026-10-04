@@ -223,8 +223,7 @@ export function pruefeZuordnung(zuordnung: GruppenZuordnung): void {
 	}
 	if (!zuordnung.ordner.trim()) {
 		throw new ZuordnungFehler(
-			"Kein Ordner eingetragen. Erwartet wird der Ordner des Lehrauftrags, " +
-				'z. B. "Bereiche/11 Unterricht/NwT 9" — nicht der Sammelordner darüber.',
+			"Kein Ordner: In den Einstellungen fehlt der Basisordner oder der Ordnername dieser Gruppe.",
 		);
 	}
 	if (!lehrauftragName(zuordnung)) {

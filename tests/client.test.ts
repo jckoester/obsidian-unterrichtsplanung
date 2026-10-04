@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 import overview from "../fixtures/overview-group1.json";
-import gruppen from "../fixtures/groups-me.json";
+import gruppen from "../fixtures/planning-groups.json";
 import { GgdApiClient } from "../src/api/client";
 import { FixtureHttpClient, HttpError } from "../src/api/http";
 
 describe("GgdApiClient", () => {
-	it("liest die eigenen Gruppen aus `items`, nicht aus `groups`", async () => {
-		const http = new FixtureHttpClient({ "GET /groups/me": gruppen });
-		const liste = await new GgdApiClient(http).myGroups();
-		expect(liste.map((g) => g.id)).toEqual([1]);
-		expect(liste[0]?.name).toBe("NwT 9");
+	it("liest die eigenen Unterrichtsgruppen aus `items`", async () => {
+		const http = new FixtureHttpClient({ "GET /planning/groups": gruppen });
+		const liste = await new GgdApiClient(http).planungsgruppen();
+		expect(liste.map((g) => g.id)).toEqual([1, 2, 3, 4, 5]);
+		expect(liste[0]?.fach?.name).toBe("NwT");
 	});
 
 	it("verträgt eine Antwort ohne items", async () => {
-		const http = new FixtureHttpClient({ "GET /groups/me": {} });
-		await expect(new GgdApiClient(http).myGroups()).resolves.toEqual([]);
+		const http = new FixtureHttpClient({ "GET /planning/groups": {} });
+		await expect(new GgdApiClient(http).planungsgruppen()).resolves.toEqual([]);
 	});
 
 	it("probt eine Gruppe über /planning und die Stundenknoten über /context", async () => {
@@ -52,7 +52,7 @@ describe("GgdApiClient", () => {
 	});
 
 	it("reicht den 403 des Scope-Gatters durch", async () => {
-		const http = new FixtureHttpClient({ "GET /groups/me": {} }, { "GET /groups/me": 403 });
-		await expect(new GgdApiClient(http).myGroups()).rejects.toBeInstanceOf(HttpError);
+		const http = new FixtureHttpClient({ "GET /planning/groups": {} }, { "GET /planning/groups": 403 });
+		await expect(new GgdApiClient(http).planungsgruppen()).rejects.toBeInstanceOf(HttpError);
 	});
 });

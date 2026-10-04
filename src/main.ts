@@ -3,7 +3,8 @@ import { GgdApiClient } from "./api/client";
 import { RequestUrlHttpClient } from "./api/http";
 import { SyncErgebnisModal } from "./dryrun-modal";
 import { registriereKopf } from "./kopf-ansicht";
-import { STANDARD_EINSTELLUNGEN, type UpsSettings } from "./settings";
+import { neueGruppen, zuordnungFuer } from "./gruppen";
+import { ladeEinstellungen, type UpsSettings } from "./settings";
 import { UpsSettingTab } from "./settings-tab";
 import { ObsidianVaultAdapter } from "./sync/obsidian-vault";
 import { syncGruppe } from "./sync/runner";
@@ -54,7 +55,7 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, STANDARD_EINSTELLUNGEN, await this.loadData());
+		this.settings = ladeEinstellungen(await this.loadData());
 	}
 
 	async saveSettings(): Promise<void> {
@@ -77,15 +78,16 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 			new Notice("Unterrichtsplanung-Sync: Basis-URL und Token fehlen noch.");
 			return;
 		}
-		if (this.settings.zuordnungen.length === 0) {
-			new Notice("Unterrichtsplanung-Sync: keine Gruppen-Zuordnung eingetragen.");
+		if (this.settings.gruppen.length === 0) {
+			new Notice("Unterrichtsplanung-Sync: noch keine Gruppe eingerichtet — in den Einstellungen „Gruppen von der Plattform holen“.");
 			return;
 		}
 
 		this.zeigeStatus("Sync läuft …");
 		let fehlerhaft = 0;
 
-		for (const zuordnung of this.settings.zuordnungen) {
+		for (const gruppe of this.settings.gruppen) {
+			const zuordnung = zuordnungFuer(this.settings.basisOrdner, gruppe);
 			try {
 				const ergebnis = await syncGruppe(this.api, this.vault, zuordnung, dryRun);
 				console.info(`[UPS] Gruppe ${zuordnung.groupId}:`, ergebnis.plan.ops);
@@ -113,6 +115,8 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 			}
 		}
 
+		await this.meldeNeueGruppen();
+
 		const zeit = new Date().toLocaleString("de-DE");
 		this.settings.letzterSync = zeit;
 		await this.saveSettings();
@@ -120,6 +124,30 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 			fehlerhaft > 0 ? `Sync: ${zeit} (${fehlerhaft} Fehler)` : `Sync: ${zeit}`,
 			fehlerhaft > 0,
 		);
+	}
+
+	/**
+	 * Neue Unterrichtsgruppen auf der Plattform nur melden, nicht einrichten: Ein Sync, der
+	 * still Einstellungen ändert, legte Notizen unter einem Ordnernamen an, den noch niemand
+	 * geprüft hat. Scheitert die Abfrage (etwa eine Plattform vor 0.13.1), bleibt es still —
+	 * der Hinweis ist eine Gefälligkeit, kein Teil des Syncs.
+	 */
+	private async meldeNeueGruppen(): Promise<void> {
+		try {
+			const neu = neueGruppen(
+				await this.api.planungsgruppen(),
+				this.settings.gruppen,
+				this.settings.ausgeblendet,
+			);
+			if (neu.length === 0) return;
+			new Notice(
+				`${neu.length === 1 ? "Eine neue Unterrichtsgruppe" : `${neu.length} neue Unterrichtsgruppen`} auf der Plattform: ` +
+					`${neu.map((g) => g.name).join(", ")} — in den Einstellungen übernehmen oder ausblenden.`,
+				10000,
+			);
+		} catch (error) {
+			console.info("[UPS] Neue Gruppen nicht abgefragt:", error);
+		}
 	}
 
 	private zeigeStatus(text: string, fehler = false): void {

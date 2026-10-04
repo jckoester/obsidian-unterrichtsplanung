@@ -1,0 +1,49 @@
+{
+	"items": [
+		{
+			"id": 1,
+			"name": "nwt-tl-9abcd",
+			"fach": { "id": 16, "slug": "nwt", "name": "NwT", "fach_code": "NWT" },
+			"jahrgang": 9,
+			"klassen": [],
+			"aktuell": true,
+			"termine": 91
+		},
+		{
+			"id": 2,
+			"name": "9C",
+			"fach": { "id": 2, "slug": "mathematik", "name": "Mathematik", "fach_code": "M" },
+			"jahrgang": 9,
+			"klassen": ["9C"],
+			"aktuell": true,
+			"termine": 93
+		},
+		{
+			"id": 3,
+			"name": "ch-ks-9d",
+			"fach": { "id": 6, "slug": "chemie", "name": "Chemie", "fach_code": "CH" },
+			"jahrgang": 9,
+			"klassen": ["9D"],
+			"aktuell": true,
+			"termine": 46
+		},
+		{
+			"id": 4,
+			"name": "ch-tl-abi28",
+			"fach": { "id": 6, "slug": "chemie", "name": "Chemie", "fach_code": "CH" },
+			"jahrgang": 11,
+			"klassen": [],
+			"aktuell": true,
+			"termine": 114
+		},
+		{
+			"id": 5,
+			"name": "8B",
+			"fach": { "id": 2, "slug": "mathematik", "name": "Mathematik", "fach_code": "M" },
+			"jahrgang": 8,
+			"klassen": ["8B"],
+			"aktuell": false,
+			"termine": 0
+		}
+	]
+}

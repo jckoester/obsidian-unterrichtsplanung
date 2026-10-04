@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import overview from "../fixtures/overview-group1.json";
-import gruppen from "../fixtures/groups-me.json";
+import gruppen from "../fixtures/planning-groups.json";
 import knoten from "../fixtures/context-nodes-group1.json";
 import type { OverviewRead, SlotRead } from "../src/api/types";
 import { GgdApiClient } from "../src/api/client";
@@ -30,7 +30,7 @@ function apiMit(
 			{
 				"GET /planning/groups/1/overview": serverstand,
 				"GET /context/nodes": knoten,
-				"GET /groups/me": gruppen,
+				"GET /planning/groups": gruppen,
 				...weitere,
 			},
 			statuses,
@@ -77,8 +77,16 @@ describe("syncGruppe", () => {
 		const ergebnis = await syncGruppe(api(), vault, zuordnung, true);
 		expect(ergebnis.ausgefuehrt).toBe(false);
 		expect(vault.files.size).toBe(0);
+		expect(vault.folders.size).toBe(0);
 		// Lehrauftragsnotiz + eine UE + zwei Stunden.
 		expect(ergebnis.plan.ops).toHaveLength(4);
+	});
+
+	it("legt die Ordner der Gruppe an, auch ohne einen einzigen Termin", async () => {
+		const vault = new InMemoryVaultAdapter();
+		const ergebnis = await syncGruppe(apiMit(schuljahr(0)), vault, zuordnung, false);
+		expect(ergebnis.fehler).toHaveLength(0);
+		expect(vault.folders).toEqual(new Set(["Bereiche/11 Unterricht/NwT 9", STUNDEN]));
 	});
 
 	it("schreibt scharf geschaltet die Notizen", async () => {

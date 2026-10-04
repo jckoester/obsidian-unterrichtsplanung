@@ -7,7 +7,7 @@ Aufnehmen (Dev-Instanz, YAML-Auth-Adapter):
 ```bash
 export GGD=https://localhost:8000/api
 export PAT=ggd_pat_…
-curl -s -H "Authorization: Bearer $PAT" "$GGD/groups/me"                   > fixtures/groups-me.json
+curl -s -H "Authorization: Bearer $PAT" "$GGD/planning/groups"             > fixtures/planning-groups.json
 curl -s -H "Authorization: Bearer $PAT" "$GGD/planning/groups/1/overview"  > fixtures/overview-group1.json
 curl -s -H "Authorization: Bearer $PAT" "$GGD/context/nodes?content_type=unterrichtsstunde&group_id=1&limit=500" > fixtures/context-nodes-group1.json
 ```

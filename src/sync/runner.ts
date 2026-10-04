@@ -52,6 +52,19 @@ export async function syncGruppe(
 	const fehler: string[] = [];
 
 	if (!dryRun) {
+		// Die Ordner gleich anlegen, nicht erst mit der ersten Notiz: Eine frisch eingerichtete
+		// Gruppe ohne Termine hätte sonst keinen Ordner, und man suchte nach dem Fehler. Erst
+		// hier, nach `materialize()` — das hat die Zuordnung geprüft, ein leerer Pfad kommt
+		// nicht bis hierher.
+		try {
+			await vault.ensureFolder(zuordnung.ordner);
+			if (zuordnung.stundenOrdner) {
+				await vault.ensureFolder(`${zuordnung.ordner}/${zuordnung.stundenOrdner}`);
+			}
+		} catch (error) {
+			fehler.push(`Ordner ${zuordnung.ordner}: ${(error as Error).message}`);
+		}
+
 		for (const op of plan.ops) {
 			try {
 				switch (op.art) {

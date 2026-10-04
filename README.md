@@ -94,18 +94,18 @@ nur ab Plattform 0.13.0 (`/health`). Der Text der Notiz bleibt danach, wie er is
 Plattform ablehnen würde, wird zurückgehalten und im Ergebnisfenster gemeldet; höchstens
 zehn Stunden je Lauf.
 
-## Änderung an der Plattform
+## Gruppen einrichten
 
-Damit die Gruppenauswahl in den Einstellungen funktioniert, hat das Gatter
-(`backend/app/auth/scopes.py`) eine Zeile bekommen:
+In den Einstellungen einen **Basisordner** wählen (z. B. `Bereiche/11 Unterricht`), dann
+**„Gruppen von der Plattform holen"** (+). Das Plugin legt für jede eigene
+Unterrichtsgruppe einen Eintrag an — Ordnername, Fach und Stufe vorbelegt; den Ordnernamen
+prüfen. Was man nicht braucht, entfernen: Die Gruppe ist dann ausgeblendet und kommt beim
+nächsten Holen nicht wieder, ihre Notizen bleiben. Setzt Plattform 0.13.1
+(`GET /planning/groups`) und Obsidian 1.13 voraus.
 
-```python
-"/groups/me": ("planning:read", "planning:write"),
-```
-
-Das Gatter ist Deny-by-default; ohne diese Zeile beantwortet die Plattform `/groups/me`
-für Token mit 403, und die `group_id` müsste jedes Schuljahr von Hand eingetragen werden.
-`/groups` als Ganzes bleibt zu — dort hängen alle Gruppen der Schule.
+Bis 0.13.0 ging das über `/groups/me`, wofür das Gatter (`backend/app/auth/scopes.py`)
+eigens eine Zeile bekommen hatte. Das Plugin benutzt `/groups/me` nicht mehr: Es liefert
+jede Mitgliedschaft — Klassen, Fachschaften — ohne Rolle und ohne Fachnamen.
 
 ## Stand gegen die Plattform (13.09.2026)
 

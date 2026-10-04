@@ -1,4 +1,4 @@
-import type { GruppenZuordnung } from "./sync/materialize";
+import type { AusgeblendeteGruppe, GruppenEinstellung } from "./gruppen";
 
 export interface UpsSettings {
 	basisUrl: string;
@@ -8,7 +8,13 @@ export interface UpsSettings {
 	syncIntervall: number;
 	/** Standardmäßig an: Ein Sync-Client, der schreibt, zeigt erst, was er vorhat. */
 	dryRun: boolean;
-	zuordnungen: GruppenZuordnung[];
+	/**
+	 * Sammelordner aller Lehraufträge, z. B. `Bereiche/11 Unterricht`. Bewusst ohne
+	 * Vorgabe: Leer weist der Sync jede Gruppe ab, statt in die Wurzel des Vaults zu schreiben.
+	 */
+	basisOrdner: string;
+	gruppen: GruppenEinstellung[];
+	ausgeblendet: AusgeblendeteGruppe[];
 	letzterSync: string | null;
 }
 
@@ -17,22 +23,25 @@ export const STANDARD_EINSTELLUNGEN: UpsSettings = {
 	token: "",
 	syncIntervall: 0,
 	dryRun: true,
-	zuordnungen: [],
+	basisOrdner: "",
+	gruppen: [],
+	ausgeblendet: [],
 	letzterSync: null,
 };
 
-export function leereZuordnung(groupId = 0): GruppenZuordnung {
-	return {
-		groupId,
-		lehrauftragLink: "",
-		fach: "",
-		stufe: null,
-		// Bewusst leer. `Bereiche/11 Unterricht` stand hier vorher als Standard und sah
-		// richtig aus — es ist aber die Sammelstelle, nicht ein Lehrauftrag. Wer ihn
-		// stehen ließ, bekam die Stunden eine Ebene zu hoch und suchte sie im falschen
-		// Ordner. Ein leeres Feld, das der Sync abweist, ist ehrlicher als ein
-		// plausibler falscher Wert.
-		ordner: "",
-		stundenOrdner: "Unterrichtsstunden",
+/**
+ * Gespeicherte Einstellungen über die Vorgaben legen.
+ *
+ * `zuordnungen` ist das Format vor dem Basisordner (bis 04.10.2026): je Gruppe ein voller
+ * Ordnerpfad und eine von Hand eingetragene `group_id`. Es gab es nur im Testvault; die
+ * Gruppen kommen über „Gruppen holen" neu, und der Vorschlag findet die vorhandenen Ordner
+ * wieder. Umgeschrieben wird deshalb nichts — das Feld fällt nur weg, statt für immer in
+ * `data.json` mitzureisen.
+ */
+export function ladeEinstellungen(gespeichert: unknown): UpsSettings {
+	const { zuordnungen: _alt, ...rest } = (gespeichert ?? {}) as Partial<UpsSettings> & {
+		zuordnungen?: unknown;
 	};
+	// Eigene Listen statt der aus den Vorgaben: Sonst änderte das erste `push` die Vorgaben mit.
+	return { ...STANDARD_EINSTELLUNGEN, gruppen: [], ausgeblendet: [], ...rest };
 }

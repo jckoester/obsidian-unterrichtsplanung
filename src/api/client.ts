@@ -4,9 +4,9 @@ import type {
 	LessonPatchAntwort,
 	LessonRead,
 	LessonUpdate,
-	MyGroup,
-	MyGroupsResponse,
 	OverviewRead,
+	Planungsgruppe,
+	PlanungsgruppenRead,
 	SlotRead,
 	SlotUpdate,
 	UnitRead,
@@ -32,17 +32,17 @@ export class GgdApiClient {
 	constructor(private readonly http: HttpClient) {}
 
 	/**
-	 * Eigene Gruppen — Grundlage der Zuordnung in den Einstellungen und zugleich der
+	 * Die eigenen Unterrichtsgruppen — Grundlage von „Gruppen holen" und zugleich der
 	 * Verbindungstest, weil der Aufruf ohne `group_id` auskommt.
 	 *
-	 * Erreichbar seit dem Eintrag `"/groups/me": ("planning:read", "planning:write")` im
-	 * Gatter (`app/auth/scopes.py`). Ein 403 hier heißt deshalb entweder: der Plattform
-	 * fehlt dieser Eintrag noch, oder dem Token fehlt `planning:read`.
+	 * Ab Plattform 0.13.1. Davor gab es nur `/groups/me`: jede Mitgliedschaft (Klassen,
+	 * Fachschaften …) ohne Rolle und ohne Fachnamen — ob man eine Gruppe unterrichtet, verriet
+	 * erst eine Probe je Gruppe. Ein 404 hier heißt deshalb meist: Plattform zu alt.
 	 */
-	async myGroups(): Promise<MyGroup[]> {
-		const { json } = await this.http.send<MyGroupsResponse>({
+	async planungsgruppen(): Promise<Planungsgruppe[]> {
+		const { json } = await this.http.send<PlanungsgruppenRead>({
 			method: "GET",
-			path: "/groups/me",
+			path: "/planning/groups",
 		});
 		return json.items ?? [];
 	}
@@ -74,21 +74,6 @@ export class GgdApiClient {
 			path: `/planning/groups/${groupId}/overview`,
 		});
 		return json;
-	}
-
-	/**
-	 * Jahrgangsstufe der Gruppe — zum Vorbefüllen von `Stufe` in der Zuordnung.
-	 *
-	 * Der Umweg über die Curriculum-Auswahl ist Absicht: Sie liegt unter `/planning` und
-	 * ist damit für ein Token erreichbar, während `/subjects` und der Rest von `/groups`
-	 * gesperrt bleiben. `grade` ist `null`, wenn die Plattform den Jahrgang nicht kennt.
-	 */
-	async groupGrade(groupId: number): Promise<number | null> {
-		const { json } = await this.http.send<{ grade: number | null }>({
-			method: "GET",
-			path: `/planning/groups/${groupId}/curriculum-chapters`,
-		});
-		return json.grade ?? null;
 	}
 
 	async units(groupId: number): Promise<UnitRead[]> {

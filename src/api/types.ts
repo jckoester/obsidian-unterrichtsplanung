@@ -19,21 +19,37 @@ export type SlotKategorie =
 	| "puffer"
 	| "vertretung";
 
-/** `GroupOut` der Plattform (`backend/app/api/groups.py`). */
-export interface MyGroup {
+/** `FachKurzRead` der Plattform (`backend/app/planning/router.py`, ab 0.13.1). */
+export interface FachKurz {
 	id: number;
-	name: string;
 	slug: string;
-	type: string;
-	subject_id: number | null;
-	sso_group_id: string | null;
-	source_class_group_id: number | null;
-	created_at: IsoDateTime;
+	/** So heißt das Fach auch im Vault: `Chemie`, `Mathematik`, `NwT`. */
+	name: string;
+	/** Bildungsplan-Kürzel, z. B. `CH`, `M`, `NWT`. */
+	fach_code: string | null;
 }
 
-/** Achtung: `items`, nicht `groups` — so heißt das Feld in `MyGroupsResponse`. */
-export interface MyGroupsResponse {
-	items: MyGroup[];
+/**
+ * `PlanungsgruppeRead`: eine Unterrichtsgruppe, in der der Nutzer Lehrkraft ist
+ * (`GET /planning/groups`, ab Plattform 0.13.1).
+ */
+export interface Planungsgruppe {
+	id: number;
+	/** Anzeigename auf der Plattform, z. B. `nwt-tl-9abcd` — folgt nicht der Vault-Konvention. */
+	name: string;
+	fach: FachKurz | null;
+	/** Der tatsächliche Jahrgang, dieselbe Regel wie die Curriculum-Auswahl. */
+	jahrgang: number | null;
+	/** Quellklassen, sortiert; leer bei Kursen ohne Klassenverband. */
+	klassen: string[];
+	/** Gehört zum laufenden Schuljahr. */
+	aktuell: boolean;
+	/** Termine im laufenden Schuljahr. */
+	termine: number;
+}
+
+export interface PlanungsgruppenRead {
+	items: Planungsgruppe[];
 }
 
 export interface SlotRead {
