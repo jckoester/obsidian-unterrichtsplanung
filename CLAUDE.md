@@ -105,7 +105,8 @@ src/
   kopf.ts              REIN: Kopf der Stundennotiz — Lehrauftrag, Datum, Nachbarstunden
   kopf-ansicht.ts      Codeblock `uplan-kopf` zeichnen, Links mit Klick und Vorschau
   zeitbudget.ts        REIN: Zeitbudget wie die Plattform, Zeitleiste aus dem Notiztext, Balken
-  zeitleiste-ansicht.ts  Codeblock `uplan-zeit` zeichnen, neu bei jeder Änderung der Notiz
+  zeitleiste-ansicht.ts  Codeblock `uplan-zeit` zeichnen, neu bei jeder Änderung der Notiz; Klick öffnet den Phasen-Editor
+  phasen-editor.ts     Dialog für eine Phase, Knopf aus `✎` (Postprozessor), Vorschläge aus den Wertelisten
   settings.ts          UpsSettings, Vorgabewerte, Laden (altes Format fällt weg)
   settings-tab.ts      Einstellungen deklarativ (Obsidian 1.13), Gruppen holen/ausblenden, Verbindungstest
   dryrun-modal.ts      SyncErgebnisModal (Probelauf UND scharfer Lauf)
@@ -117,7 +118,7 @@ src/
     materialize.ts     REIN: Plan bauen
     notizen.ts         Notizformate (Lehrauftrag, UE), Slug, Datum
     frontmatter.ts     Lesen tolerant, Schreiben streng; Marker-Abschnitt
-    phasen.ts          REIN: ## Ablauf lesen (Tabelle/Liste), rendern, Plattformphasen zuordnen und mischen
+    phasen.ts          REIN: ## Ablauf lesen (Tabelle/Liste), rendern, Plattformphasen zuordnen und mischen; eine Phase bearbeiten (`bearbeiteAblauf`)
     status.ts          kategorie → UArt, Slot + Phasen → UStand — die einzige Stelle
     wertelisten.ts     REIN: Sozialformen und Methoden der Plattform, Suche nach Titel oder Alias
     hash.ts            FNV-1a 64 Bit, stabile JSON-Darstellung

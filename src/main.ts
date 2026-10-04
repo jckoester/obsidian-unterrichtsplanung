@@ -3,6 +3,7 @@ import { GgdApiClient } from "./api/client";
 import { RequestUrlHttpClient } from "./api/http";
 import { SyncErgebnisModal } from "./dryrun-modal";
 import { registriereKopf } from "./kopf-ansicht";
+import { oeffnePhasenEditor, registrierePhasenknopf, type Bearbeite, type Ziel } from "./phasen-editor";
 import { registriereZeitleiste } from "./zeitleiste-ansicht";
 import { neueGruppen, zuordnungFuer } from "./gruppen";
 import { ladeEinstellungen, type UpsSettings } from "./settings";
@@ -35,7 +36,10 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 
 		this.addSettingTab(new UpsSettingTab(this.app, this));
 		registriereKopf(this);
-		registriereZeitleiste(this);
+		// Knopf und Zeitleiste öffnen denselben Editor.
+		const bearbeite: Bearbeite = (pfad, ziel) => void this.bearbeitePhase(pfad, ziel);
+		registriereZeitleiste(this, bearbeite);
+		registrierePhasenknopf(this, bearbeite);
 
 		this.addCommand({
 			id: "sync-alle-gruppen",
@@ -127,6 +131,19 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 			fehlerhaft > 0 ? `Sync: ${zeit} (${fehlerhaft} Fehler)` : `Sync: ${zeit}`,
 			fehlerhaft > 0,
 		);
+	}
+
+	/**
+	 * Die Wertelisten erst beim Öffnen holen, damit der Editor die vom letzten Sync bekommt.
+	 * Fehlen sie ganz — nach einem Update, vor dem ersten Sync —, lädt er sie einmal selbst:
+	 * Sonst böte er keine Vorschläge an, bis jemand synchronisiert.
+	 */
+	private async bearbeitePhase(pfad: string, ziel: Ziel): Promise<void> {
+		if (!this.settings.wertelisten && this.settings.basisUrl && this.settings.token) {
+			await this.aktualisiereWertelisten();
+			await this.saveSettings();
+		}
+		await oeffnePhasenEditor(this.app, this.settings.wertelisten, pfad, ziel);
 	}
 
 	/**

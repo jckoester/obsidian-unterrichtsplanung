@@ -56,10 +56,28 @@ export interface VaultPhase {
 	material?: string[];
 }
 
+/**
+ * Wo eine Phase im Text steht: die Zeilen `start` bis `ende` (ausschließlich), gezählt in dem
+ * Text, den `leseAblauf` bekam. Gebraucht vom Phasen-Editor, der nur seine eine Phase ersetzt.
+ */
+export interface Stelle {
+	start: number;
+	ende: number;
+	/** Der Name stand durchgestrichen da (`~~…~~`) — die Phase ist auf der Plattform gestrichen. */
+	gestrichen: boolean;
+}
+
 export interface Ablauf {
 	phasen: VaultPhase[];
 	/** Was die Plattform ablehnen würde. Steht hier etwas, wird die Stunde nicht geschrieben. */
 	fehler: string[];
+	/**
+	 * Je Phase ihre Zeilen, parallel zu `phasen`. Bewusst nicht an den Phasen selbst: Die gehen
+	 * in den Strukturhash, und ein neues Feld dort machte jede bestehende Notiz „geändert".
+	 */
+	stellen: Stelle[];
+	/** Bei einer Tabelle die Zeile ihrer Kopfzeile. */
+	kopf?: number;
 }
 
 const PRIO_LABEL: Record<string, string> = { kern: "Kern", uebung: "Übung", vertiefung: "Vertiefung" };
@@ -201,12 +219,18 @@ export function ablaufAbschnitt(text: string): { start: number; ende: number; ze
 	return { start, ende, zeilen: zeilen.slice(start + 1, ende) };
 }
 
+/** Eine Zeile samt ihrer Nummer im gelesenen Text. */
+interface Zeile {
+	text: string;
+	nr: number;
+}
+
 export function leseAblauf(text: string): Ablauf | null {
 	const abschnitt = ablaufAbschnitt(text);
 	if (!abschnitt) return null;
-	const zeilen = ohneZeitleiste(abschnitt.zeilen);
-	const inhalt = zeilen.filter((z) => z.trim() !== "");
-	if (inhalt[0]?.trim().startsWith("|")) return leseTabelle(inhalt);
+	const zeilen = ohneZeitleiste(abschnitt.zeilen).map((z, i) => ({ text: z, nr: abschnitt.start + 1 + i }));
+	const inhalt = zeilen.filter((z) => z.text.trim() !== "");
+	if (inhalt[0]?.text.trim().startsWith("|")) return leseTabelle(inhalt);
 	return leseListe(zeilen);
 }
 
@@ -220,15 +244,27 @@ export function leseAblauf(text: string): Ablauf | null {
  * Phase: Ein versehentlich gelöschtes ``` räumte die Stunde auf der Plattform leer.
  */
 function ohneZeitleiste(zeilen: string[]): string[] {
+	const block = zeitleistenBlock(zeilen);
+	// Geleert statt herausgeschnitten: So behält jede Zeile ihre Nummer (`Stelle`).
+	return block ? zeilen.map((z, i) => (i >= block.start && i < block.ende ? "" : z)) : zeilen;
+}
+
+/** Die Zeilen des Zeitleisten-Blocks, `ende` ausschließlich; ohne schließenden Zaun nur die öffnende. */
+function zeitleistenBlock(zeilen: string[]): { start: number; ende: number } | null {
 	const start = zeilen.findIndex((z) => z.trim() === "```" + ZEITLEISTE);
-	if (start === -1) return zeilen;
+	if (start === -1) return null;
 	const ende = zeilen.findIndex((z, i) => i > start && z.trim() === "```");
-	return [...zeilen.slice(0, start), ...zeilen.slice(ende === -1 ? start + 1 : ende + 1)];
+	return { start, ende: ende === -1 ? start + 1 : ende + 1 };
+}
+
+function istGestrichen(name: string): boolean {
+	const t = name.trim();
+	return t.startsWith("~~") && t.endsWith("~~") && t.length > 4;
 }
 
 function ohneStreichung(name: string): string {
 	const t = name.trim();
-	return t.startsWith("~~") && t.endsWith("~~") && t.length > 4 ? t.slice(2, -2).trim() : t;
+	return istGestrichen(t) ? t.slice(2, -2).trim() : t;
 }
 
 /** `10`, `10'`, `10′`, `10 min` → 10; leer → `null`; alles andere → `undefined` (unlesbar). */
@@ -290,18 +326,22 @@ function zellenVon(zeile: string): string[] {
 	return teile;
 }
 
-function leseTabelle(zeilen: string[]): Ablauf {
+function spaltenVon(kopfzeile: string): (Spalte | null)[] {
+	return zellenVon(kopfzeile).map((k) => SPALTEN[k.toLowerCase().replace(/[^a-zäöüß]/g, "")] ?? null);
+}
+
+function leseTabelle(zeilen: Zeile[]): Ablauf {
 	const fehler: string[] = [];
-	const kopf = zellenVon(zeilen[0] as string).map(
-		(k) => SPALTEN[k.toLowerCase().replace(/[^a-zäöüß]/g, "")] ?? null,
-	);
+	const kopfzeile = zeilen[0] as Zeile;
+	const kopf = spaltenVon(kopfzeile.text);
 	if (!kopf.includes("name")) {
-		return { phasen: [], fehler: ["Tabelle unter „## Ablauf“ hat keine Spalte „Phase“"] };
+		return { phasen: [], fehler: ["Tabelle unter „## Ablauf“ hat keine Spalte „Phase“"], stellen: [], kopf: kopfzeile.nr };
 	}
 
 	const phasen: VaultPhase[] = [];
+	const stellen: Stelle[] = [];
 	let vorige = "";
-	for (const zeile of zeilen.slice(1)) {
+	for (const { text: zeile, nr } of zeilen.slice(1)) {
 		const zellen = zellenVon(zeile);
 		if (zellen.every((z) => /^:?-+:?$/.test(z))) continue; // Trennzeile
 		if (zellen.every((z) => z === "")) continue;
@@ -347,8 +387,10 @@ function leseTabelle(zeilen: string[]): Ablauf {
 		vorige = p.name;
 		pruefe(phasen.length + 1, p, fehler);
 		phasen.push(p);
+		const namenszelle = zellen[kopf.indexOf("name")] ?? "";
+		stellen.push({ start: nr, ende: nr + 1, gestrichen: istGestrichen(namenszelle) });
 	}
-	return { phasen, fehler };
+	return { phasen, fehler, stellen, kopf: kopfzeile.nr };
 }
 
 const PUNKT = /^\s{0,1}(?:\d+[.)]|[-*+])(?:\s+(.*))?$/;
@@ -360,32 +402,40 @@ const BEGINNT_MIT_DAUER = /^\s*\d+\s*(?:min\.?|minuten|′|')/i;
  * eingerückt die Beschreibung. Eine Klammer am Ende zählt nur als Angaben, wenn sie mit
  * einer Dauer beginnt oder ein `·` enthält — „Erarbeitung (Aufg. 1+2)" bleibt ein Name.
  */
-function leseListe(zeilen: string[]): Ablauf {
+function leseListe(zeilen: Zeile[]): Ablauf {
 	const fehler: string[] = [];
 	const phasen: VaultPhase[] = [];
-	let aktuell: { phase: VaultPhase; beschreibung: string[] } | null = null;
+	const stellen: Stelle[] = [];
+	let aktuell: { phase: VaultPhase; beschreibung: string[]; stelle: Stelle } | null = null;
 
 	const abschliessen = () => {
 		if (!aktuell) return;
 		if (aktuell.beschreibung.length > 0) aktuell.phase.beschreibung = aktuell.beschreibung.join("\n");
 		pruefe(phasen.length + 1, aktuell.phase, fehler);
 		phasen.push(aktuell.phase);
+		stellen.push(aktuell.stelle);
 		aktuell = null;
 	};
 
-	for (const zeile of zeilen) {
+	for (const { text: zeile, nr } of zeilen) {
 		const punkt = PUNKT.exec(zeile);
 		if (punkt) {
 			abschliessen();
 			const inhalt = (punkt[1] ?? "").trim();
 			if (inhalt === "") continue; // leerer Punkt: der Platzhalter, keine Phase
-			aktuell = { phase: leseListenpunkt(inhalt, phasen.length + 1, fehler), beschreibung: [] };
+			const name = KLAMMER_AM_ENDE.exec(inhalt)?.[1] ?? inhalt;
+			aktuell = {
+				phase: leseListenpunkt(inhalt, phasen.length + 1, fehler),
+				beschreibung: [],
+				stelle: { start: nr, ende: nr + 1, gestrichen: istGestrichen(name) || istGestrichen(inhalt) },
+			};
 		} else if (aktuell && zeile.trim() !== "") {
 			aktuell.beschreibung.push(zeile.trim());
+			aktuell.stelle.ende = nr + 1;
 		}
 	}
 	abschliessen();
-	return { phasen, fehler };
+	return { phasen, fehler, stellen };
 }
 
 function leseListenpunkt(inhalt: string, nr: number, fehler: string[]): VaultPhase {
@@ -404,6 +454,188 @@ function leseListenpunkt(inhalt: string, nr: number, fehler: string[]): VaultPha
 	if (angaben[0] !== undefined) phase.sozialform = angaben.shift() as string;
 	if (angaben.length > 0) phase.methode = angaben.join(", ");
 	return phase;
+}
+
+// ── Bearbeiten (Phasen-Editor) ───────────────────────────────────────────────
+
+/** Die Felder einer Phase, wie Tabellenspalten und Editor sie nennen. */
+export type AblaufFeld = Spalte;
+
+const ALLE_FELDER: AblaufFeld[] = ["name", "dauer", "prio", "beschreibung", "sozialform", "methode", "material"];
+
+export interface AblaufImText {
+	ablauf: Ablauf;
+	form: "tabelle" | "liste";
+	/**
+	 * Was der Editor anbieten darf. Eine Tabelle drückt nur aus, wofür sie eine Spalte hat —
+	 * die handgeschriebenen haben `Zeit | Phase | Inhalt | Methode | Medien`, ohne Prio. Eine
+	 * Liste alles: Braucht eine Phase mehr als Name und Dauer, wird sie zur Tabelle.
+	 */
+	felder: Set<AblaufFeld>;
+}
+
+/**
+ * Der Ablauf einer Notiz, mit Zeilennummern im ganzen Text. Gesucht wird erst hinter dem
+ * Frontmatter: Ein mehrzeiliges Stundenziel könnte eine eingerückte Zeile `## Ablauf`
+ * enthalten.
+ */
+export function ablaufImText(text: string): AblaufImText | null {
+	const zeilen = text.split("\n");
+	const versatz = rumpfBeginn(zeilen);
+	const ablauf = leseAblauf(zeilen.slice(versatz).join("\n"));
+	if (!ablauf) return null;
+	const verschoben: Ablauf = {
+		...ablauf,
+		stellen: ablauf.stellen.map((s) => ({ ...s, start: s.start + versatz, ende: s.ende + versatz })),
+		kopf: ablauf.kopf === undefined ? undefined : ablauf.kopf + versatz,
+	};
+	if (verschoben.kopf === undefined) return { ablauf: verschoben, form: "liste", felder: new Set(ALLE_FELDER) };
+	const spalten = spaltenVon(zeilen[verschoben.kopf] as string);
+	const felder = new Set<AblaufFeld>(ALLE_FELDER.filter((f) => spalten.includes(f)));
+	return { ablauf: verschoben, form: "tabelle", felder };
+}
+
+/** Die erste Zeile hinter dem Frontmatter — so, wie `splitNote` die Grenze zieht. */
+function rumpfBeginn(zeilen: string[]): number {
+	if (zeilen[0]?.trimEnd() !== "---") return 0;
+	const ende = zeilen.findIndex((z, i) => i > 0 && z.trimEnd() === "---");
+	return ende === -1 ? 0 : ende + 1;
+}
+
+/**
+ * Welche Phase in Datenzeile `zeile` einer Tabelle steht (0 = erste Zeile unter der
+ * Trennzeile) — so zählt der Knopf `✎` seine Zeile. `null` für eine leere Zeile, die keine
+ * Phase ist.
+ */
+export function phaseInTabellenzeile(text: string, zeile: number): number | null {
+	const imText = ablaufImText(text);
+	if (!imText || imText.ablauf.kopf === undefined) return null;
+	const nr = imText.ablauf.kopf + 2 + zeile;
+	const nummer = imText.ablauf.stellen.findIndex((s) => s.start === nr);
+	return nummer === -1 ? null : nummer;
+}
+
+export type Aenderung =
+	| { art: "ersetzen"; nummer: number; vorher: VaultPhase; phase: VaultPhase }
+	| { art: "anhaengen"; phase: VaultPhase }
+	| { art: "loeschen"; nummer: number; vorher: VaultPhase };
+
+/**
+ * Wendet eine Änderung aus dem Phasen-Editor auf den Text der Notiz an.
+ *
+ * In einer Tabelle wird nur die eine Zeile ersetzt, gelöscht oder angehängt — die übrigen
+ * behalten ihre Formatierung, unbekannte Spalten und die Knopfspalte ihren Inhalt, eine
+ * gestrichene Phase ihre Tilden. Eine Liste wird neu geschrieben, nach derselben Regel wie
+ * beim Sync (`rendereAblauf`): als Tabelle, sobald eine Phase mehr trägt als Name und Dauer.
+ * Prio und Material, die eine Liste nicht zeigt, setzt das auf Kern und leer — genau das
+ * hat die Plattform, solange der Sync eine Liste schreibt; hat sie sich inzwischen bewegt,
+ * wird es beim nächsten Sync ein Konflikt, kein stilles Überschreiben.
+ *
+ * Wirft, wenn an der Stelle nicht mehr die Phase steht, die der Editor geöffnet hat — die
+ * Notiz hat sich dazwischen geändert.
+ */
+export function bearbeiteAblauf(text: string, aenderung: Aenderung): string {
+	const imText = ablaufImText(text);
+	if (!imText) throw new Error("Die Notiz hat keinen Abschnitt „## Ablauf“.");
+	const { ablauf } = imText;
+	if (aenderung.art !== "anhaengen") {
+		const jetzt = ablauf.phasen[aenderung.nummer];
+		if (!jetzt || stableStringify(jetzt) !== stableStringify(aenderung.vorher)) {
+			throw new Error("Der Ablauf hat sich inzwischen geändert — bitte die Phase neu öffnen.");
+		}
+	}
+	const zeilen = text.split("\n");
+
+	if (ablauf.kopf !== undefined) {
+		const kopfTexte = zellenVon(zeilen[ablauf.kopf] as string);
+		const spalten = spaltenVon(zeilen[ablauf.kopf] as string);
+		if (aenderung.art === "loeschen") {
+			zeilen.splice((ablauf.stellen[aenderung.nummer] as Stelle).start, 1);
+		} else if (aenderung.art === "ersetzen") {
+			const stelle = ablauf.stellen[aenderung.nummer] as Stelle;
+			const alt = zellenVon(zeilen[stelle.start] as string);
+			zeilen[stelle.start] = tabellenzeile(spalten, alt, aenderung.phase, stelle.gestrichen);
+		} else {
+			// Leere Zellen für eine neue Zeile — außer in der Knopfspalte (ohne Überschrift).
+			const leer = kopfTexte.map((k) => (k === "" ? PHASENKNOPF : ""));
+			let ende = ablauf.kopf;
+			while (ende < zeilen.length && (zeilen[ende] as string).trim().startsWith("|")) ende++;
+			zeilen.splice(ende, 0, tabellenzeile(spalten, leer, aenderung.phase, false));
+		}
+		return zeilen.join("\n");
+	}
+
+	// Liste oder leerer Platzhalter: neu schreiben.
+	const phasen = ablauf.phasen.map((p, i) => alsPhase(p, (ablauf.stellen[i] as Stelle).gestrichen));
+	if (aenderung.art === "loeschen") phasen.splice(aenderung.nummer, 1);
+	else if (aenderung.art === "ersetzen") {
+		phasen[aenderung.nummer] = alsPhase(aenderung.phase, (ablauf.stellen[aenderung.nummer] as Stelle).gestrichen);
+	} else phasen.push(alsPhase(aenderung.phase, false));
+
+	const bereich = ablaufInhalt(zeilen);
+	zeilen.splice(bereich.start, bereich.ende - bereich.start, ...rendereAblauf(phasen));
+	return zeilen.join("\n");
+}
+
+/** Eine Tabellenzeile nach der Kopfzeile; was die Phase nicht sagt, bleibt aus `alt`. */
+function tabellenzeile(spalten: (Spalte | null)[], alt: string[], p: VaultPhase, gestrichen: boolean): string {
+	const zellen = spalten.map((spalte, i) => {
+		const bisher = alt[i] ?? "";
+		switch (spalte) {
+			case "name":
+				return gestrichen ? `~~${p.name}~~` : p.name;
+			case "dauer":
+				return p.dauer_min === undefined ? bisher : p.dauer_min === null ? "" : String(p.dauer_min);
+			case "prio":
+				return p.prio === undefined ? bisher : (PRIO_LABEL[p.prio] ?? p.prio);
+			case "beschreibung":
+				return p.beschreibung === undefined ? bisher : (p.beschreibung ?? "");
+			case "sozialform":
+			case "methode":
+				return p[spalte] === undefined ? bisher : (p[spalte] ?? "");
+			case "material":
+				return p.material === undefined ? bisher : p.material.join(", ");
+			default:
+				return bisher;
+		}
+	});
+	return `| ${zellen.map(zelle).join(" | ")} |`;
+}
+
+/** Eine Vault-Phase so, wie `rendereAblauf` sie erwartet — Werte als Freitext. */
+function alsPhase(v: VaultPhase, gestrichen: boolean): Phase {
+	const text = (wert: string | null | undefined): Verweis | null =>
+		wert && wert.trim() ? { typ: "text", wert: wert.trim(), node_id: null, titel: null } : null;
+	return {
+		id: null,
+		name: v.name,
+		dauer_min: v.dauer_min ?? null,
+		beschreibung: v.beschreibung ?? null,
+		prio: v.prio ?? "kern",
+		sozialform: text(v.sozialform),
+		methode: text(v.methode),
+		material: (v.material ?? []).map(text).filter((m): m is Verweis => m !== null),
+		status: gestrichen ? "gestrichen" : null,
+	};
+}
+
+/**
+ * Die Zeilen, die eine Liste (oder der leere Platzhalter) unter `## Ablauf` belegt — ohne
+ * Zeitleiste und ohne die Leerzeilen davor und danach. Ohne Inhalt die Stelle direkt
+ * dahinter, damit neu geschrieben wird, wo der Platzhalter stünde.
+ */
+function ablaufInhalt(zeilen: string[]): { start: number; ende: number } {
+	const versatz = rumpfBeginn(zeilen);
+	const abschnitt = ablaufAbschnitt(zeilen.slice(versatz).join("\n")) as NonNullable<ReturnType<typeof ablaufAbschnitt>>;
+	const erste = versatz + abschnitt.start + 1;
+	const block = zeitleistenBlock(abschnitt.zeilen);
+	const ab = block ? erste + block.ende : erste;
+	const bis = versatz + abschnitt.ende;
+	let start = ab;
+	while (start < bis && (zeilen[start] as string).trim() === "") start++;
+	let ende = bis;
+	while (ende > start && (zeilen[ende - 1] as string).trim() === "") ende--;
+	return { start, ende };
 }
 
 // ── Mischen ──────────────────────────────────────────────────────────────────

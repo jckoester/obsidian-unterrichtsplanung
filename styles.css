@@ -161,3 +161,54 @@
 	color: var(--text-error);
 }
 
+.uplan-zeit-neu {
+	margin-left: auto;
+	padding: 0 0.2em;
+	height: auto;
+}
+
+.uplan-zeit-phase {
+	cursor: pointer;
+
+	&:hover {
+		filter: brightness(1.15);
+	}
+}
+
+/*
+ * Phasen-Editor (`src/phasen-editor.ts`): der Knopf in der Tabelle und der Dialog.
+ */
+.uplan-phasenknopf {
+	padding: 0 0.3em;
+	height: auto;
+	font-size: var(--font-ui-small);
+}
+
+.uplan-phasen-editor {
+	.uplan-editor-breit {
+		width: 100%;
+	}
+
+	.setting-item:has(textarea),
+	.setting-item:has(.uplan-editor-breit) {
+		flex-wrap: wrap;
+	}
+
+	.setting-item:has(.uplan-editor-breit) .setting-item-control {
+		flex: 1 1 100%;
+	}
+}
+
+.uplan-editor-fehler {
+	color: var(--text-error);
+}
+
+.uplan-editor-fehler:empty {
+	display: none;
+}
+
+.uplan-vorschlag-alias {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+

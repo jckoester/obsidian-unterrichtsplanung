@@ -1,15 +1,18 @@
-import { MarkdownRenderChild, TFile, type App, type Plugin } from "obsidian";
+import { MarkdownRenderChild, TFile, setIcon, type App, type Plugin } from "obsidian";
+import type { Bearbeite } from "./phasen-editor";
 import { ZEITLEISTE } from "./sync/phasen";
 import { balken, zeitleisteAus, type ZeitleisteDaten } from "./zeitbudget";
 
 /**
  * Zeichnet die Zeitleiste aus dem Codeblock `uplan-zeit` unter `## Ablauf`: wie viel der
  * Stunde verplant ist, wie viel frei, und einen Balken mit einem Abschnitt je Phase, gefärbt
- * nach Prio wie auf der Plattform (Plan-Ablauf-Editor, B3).
+ * nach Prio wie auf der Plattform (Plan-Ablauf-Editor, B3). Ein Klick auf einen Abschnitt
+ * öffnet dessen Phase im Phasen-Editor, das + legt eine neue an (B5) — auch über einer
+ * Liste, die keine Knöpfe trägt.
  */
-export function registriereZeitleiste(plugin: Plugin): void {
+export function registriereZeitleiste(plugin: Plugin, bearbeite: Bearbeite): void {
 	plugin.registerMarkdownCodeBlockProcessor(ZEITLEISTE, (_quelle, el, ctx) => {
-		ctx.addChild(new Zeitleiste(plugin.app, el, ctx.sourcePath));
+		ctx.addChild(new Zeitleiste(plugin.app, el, ctx.sourcePath, bearbeite));
 	});
 }
 
@@ -22,8 +25,11 @@ class Zeitleiste extends MarkdownRenderChild {
 		private readonly app: App,
 		containerEl: HTMLElement,
 		private readonly pfad: string,
+		private readonly bearbeite: Bearbeite,
 	) {
 		super(containerEl);
+		// In der Live-Vorschau öffnete ein Klick sonst den Quelltext des Blocks.
+		containerEl.addEventListener("mousedown", (e) => e.stopPropagation());
 	}
 
 	override onload(): void {
@@ -66,6 +72,9 @@ class Zeitleiste extends MarkdownRenderChild {
 				text: budget.ohneDauer === 1 ? "1 Phase ohne Dauer" : `${budget.ohneDauer} Phasen ohne Dauer`,
 			});
 		}
+		const neu = kopf.createEl("button", { cls: "uplan-zeit-neu clickable-icon", attr: { "aria-label": "Neue Phase" } });
+		setIcon(neu, "plus");
+		neu.addEventListener("click", () => this.bearbeite(this.pfad, "neu"));
 
 		const { teile, ziel } = balken(budget);
 		const leisteEl = leiste.createDiv({ cls: "uplan-zeit-balken" });
@@ -78,6 +87,8 @@ class Zeitleiste extends MarkdownRenderChild {
 			if (abschnitt.dauer === null) el.addClass("mod-ohne-dauer");
 			el.setAttr("aria-label", `${abschnitt.spanne} ${abschnitt.name}`);
 			el.createSpan({ text: abschnitt.name });
+			const nummer = teil.nummer as number;
+			el.addEventListener("click", () => this.bearbeite(this.pfad, { nummer }));
 		}
 		// Nur bei einem Überhang: Sonst endet die verfügbare Zeit ohnehin am rechten Rand.
 		if (budget.ueberhang > 0) {
