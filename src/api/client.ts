@@ -1,6 +1,7 @@
 import { HttpError, type HttpClient } from "./http";
 import type {
 	ContextNodeRead,
+	LessonPatchAntwort,
 	LessonRead,
 	LessonUpdate,
 	MyGroup,
@@ -137,9 +138,19 @@ export class GgdApiClient {
 		return json;
 	}
 
-	// ── Schreibpfad (Stufe 2) ────────────────────────────────────────────────
-	// Beide Endpunkte legen selbst einen Snapshot an; das Plugin muss vorher keinen
-	// erzeugen. `expected_updated_at` mitschicken, sobald es gesetzt werden kann.
+	/**
+	 * Die Plattformversion aus `GET /health` — ohne Token erreichbar, außerhalb des Gatters.
+	 * Vor dem ersten Zurückschreiben eines Laufs gefragt: Gegen eine Plattform vor 0.13
+	 * verlöre das Plugin still den Nachbereitungsstatus der Phasen (P2).
+	 */
+	async plattformversion(): Promise<string> {
+		const { json } = await this.http.send<{ version?: string }>({ method: "GET", path: "/health" });
+		return json.version ?? "unbekannt";
+	}
+
+	// ── Schreibpfad ──────────────────────────────────────────────────────────
+	// Beide PATCH-Endpunkte legen selbst einen Snapshot an; das Plugin muss vorher keinen
+	// erzeugen.
 
 	async patchSlot(slotId: Uuid, patch: SlotUpdate): Promise<SlotRead> {
 		const { json } = await this.http.send<SlotRead>({
@@ -150,14 +161,25 @@ export class GgdApiClient {
 		return json;
 	}
 
-	async patchLesson(
-		nodeId: Uuid,
-		patch: LessonUpdate,
-	): Promise<Record<string, unknown>> {
-		const { json } = await this.http.send<Record<string, unknown>>({
+	/** Seit 0.13 mit dem gespeicherten Stand in der Antwort (P3). */
+	async patchLesson(nodeId: Uuid, patch: LessonUpdate): Promise<LessonPatchAntwort> {
+		const { json } = await this.http.send<LessonPatchAntwort>({
 			method: "PATCH",
 			path: `/planning/lessons/${nodeId}`,
 			body: patch,
+		});
+		return json;
+	}
+
+	/**
+	 * Entwurf vom Termin aus anlegen — für einen Platzhalter, in dem im Vault der Ablauf
+	 * oder das Stundenziel gefüllt wurde. Gibt es schon einen, kommt dieser zurück
+	 * (`neu: false`), es entsteht kein zweiter.
+	 */
+	async entwurfFuerSlot(slotId: Uuid): Promise<{ id: Uuid; neu: boolean }> {
+		const { json } = await this.http.send<{ id: Uuid; neu: boolean }>({
+			method: "POST",
+			path: `/planning/slots/${slotId}/lesson`,
 		});
 		return json;
 	}

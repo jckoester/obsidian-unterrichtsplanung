@@ -1,18 +1,40 @@
+import type { LessonUpdate } from "../api/types";
+
 export type SyncOpArt =
 	| "erstellen"
 	| "aktualisieren"
 	| "umbenennen"
 	| "archivieren"
 	| "konflikt"
+	| "zurueckschreiben"
+	| "zurueckgehalten"
 	| "unveraendert";
+
+/**
+ * Was der Runner zur Plattform schickt. `knotenId: null` heißt: Der Termin hat noch keinen
+ * Entwurf — er wird erst angelegt, dann beschrieben.
+ */
+export interface Rueckkanal {
+	slotId: string;
+	knotenId: string | null;
+	nutzlast: LessonUpdate;
+	/**
+	 * Der Ablauf, wie er beim Planen im Vault stand. Nach dem Schreiben wird der Hash damit
+	 * gebildet, nicht mit dem, was dann in der Datei steht: Hat jemand in der Zwischenzeit
+	 * weitergeschrieben, bleibt das als Vault-Änderung sichtbar, statt eingemeindet zu werden.
+	 */
+	vaultAblauf: unknown;
+}
 
 export interface SyncOp {
 	art: SyncOpArt;
 	pfad: string;
 	/** Bei „umbenennen": der bisherige Pfad. */
 	vonPfad?: string;
-	/** Der zu schreibende Inhalt; fehlt bei „unveraendert" und „umbenennen". */
+	/** Der zu schreibende Inhalt; fehlt bei „unveraendert", „umbenennen" und dem Rückkanal. */
 	inhalt?: string;
+	/** Bei „zurueckschreiben". */
+	rueckkanal?: Rueckkanal;
 	grund?: string;
 }
 

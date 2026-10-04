@@ -169,7 +169,7 @@ describe("materialize", () => {
 	describe("Stundenziel", () => {
 		const B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 		const mitZiel = (stundenziel: string | null) => (vorhanden: { pfad: string; inhalt: string }[]) =>
-			materialize({ zuordnung, overview: stand, vorhanden, stundenknoten: [{ id: B, stundenziel }] });
+			materialize({ zuordnung, overview: stand, vorhanden, stundenknoten: [{ id: B, stundenziel, phasen: [], updated_at: null, darf_schreiben: true }] });
 
 		it("steht im Frontmatter der Stunde, deren Knoten es trägt", () => {
 			const plan = mitZiel("Übersetzungen berechnen")([]);

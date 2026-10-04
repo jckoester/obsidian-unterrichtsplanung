@@ -12,7 +12,7 @@ import type { SlotKategorie } from "../api/types";
  * Jetzt zwei Felder, beide gehören der Plattform und sind im Vault read-only:
  *
  * - `UArt` — die Kategorie des Slots, 1:1.
- * - `UStand` — der Bearbeitungsstand, abgeleitet aus dem, was die Übersicht ohnehin liefert.
+ * - `UStand` — der Bearbeitungsstand, abgeleitet aus Slot und Phasen.
  *
  * Einen Rückkanal für den Status gibt es damit nicht mehr; der Vault besitzt ihn nicht.
  */
@@ -33,20 +33,21 @@ export function kategorieZuUArt(kategorie: string): string {
 	return UART[kategorie as SlotKategorie] ?? kategorie;
 }
 
-/**
- * `Skizze` (Phasen ohne Dauer) fehlt noch: Dafür braucht es die Phasen selbst (AP6) und
- * eine Plattform, die eine Phase ohne Dauer annimmt (AP4). Bis dahin gibt es drei Stufen.
- */
-export type UStand = "Platzhalter" | "Geplant" | "Gehalten";
+export type UStand = "Platzhalter" | "Skizze" | "Geplant" | "Gehalten";
 
 export interface SlotStandInput {
 	hat_phasen: boolean;
 	nachbereitet_at: string | null;
 }
 
-/** Nachbereitet schlägt geplant: Eine gehaltene Stunde hatte auch einen Plan. */
-export function slotZuUStand(slot: SlotStandInput): UStand {
+/**
+ * Nachbereitet schlägt alles: Eine gehaltene Stunde hatte auch einen Plan. Danach zählen
+ * die Phasen — ohne Phasen ein Platzhalter, mit einer Phase ohne Dauer eine Skizze, sonst
+ * geplant. Sind die Phasen nicht bekannt (Entwurf nicht lesbar), entscheidet `hat_phasen`.
+ */
+export function slotZuUStand(slot: SlotStandInput, phasen?: { dauer_min: number | null }[]): UStand {
 	if (slot.nachbereitet_at) return "Gehalten";
-	if (slot.hat_phasen) return "Geplant";
-	return "Platzhalter";
+	if (phasen === undefined) return slot.hat_phasen ? "Geplant" : "Platzhalter";
+	if (phasen.length === 0) return "Platzhalter";
+	return phasen.some((p) => p.dauer_min === null) ? "Skizze" : "Geplant";
 }

@@ -240,3 +240,104 @@ describe("syncGruppe", () => {
 		expect(zweit.plan.ops).toHaveLength(3);
 	});
 });
+
+describe("syncGruppe — Rückkanal", () => {
+	const B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+	const ZWEITE = `${STUNDEN}/NwT 9 2026-09-22.md`;
+	const ERSTE = `${STUNDEN}/NwT 9 2026-09-15.md`;
+	const NEU = "cccccccc-3333-4333-8333-cccccccccccc";
+
+	/** Die Antwort der Plattform auf das PATCH: gespeichert, mit Kennung für die neue Phase. */
+	const antwort = {
+		ok: true,
+		updated_at: "2026-10-03T19:49:20.811852Z",
+		stundenziel: "Übersetzungsverhältnisse an Zahnradgetrieben berechnen",
+		phasen: [
+			{ id: "p1", name: "Hinweise zur Arbeit", dauer_min: 5, prio: "kern" },
+			{ id: "p2", name: "Bearbeitung", dauer_min: 75, prio: "kern" },
+			{ id: "p3", name: "Abgabe", dauer_min: 5, prio: "kern" },
+		],
+	};
+
+	function plattform(weitere: Record<string, unknown> = {}, statuses: Record<string, number> = {}) {
+		const http = new FixtureHttpClient(
+			{
+				"GET /planning/groups/1/overview": stand,
+				"GET /context/nodes": knoten,
+				"GET /health": { status: "ok", version: "0.13.0" },
+				[`PATCH /planning/lessons/${B}`]: antwort,
+				...weitere,
+			},
+			statuses,
+		);
+		return { http, api: new GgdApiClient(http) };
+	}
+
+	async function mitBearbeiteterStunde() {
+		const vault = new InMemoryVaultAdapter();
+		await syncGruppe(api(), vault, zuordnung, false);
+		const vorher = await vault.read(ZWEITE);
+		expect(vorher).toContain("2. Bearbeitung (80 min)");
+		await vault.write(ZWEITE, vorher.replace("2. Bearbeitung (80 min)", "2. Bearbeitung (75 min)\n3. Abgabe (5 min)"));
+		return vault;
+	}
+
+	it("schreibt zurück, trägt die Buchführung ein, und der nächste Lauf ist ruhig", async () => {
+		const vault = await mitBearbeiteterStunde();
+		const { http, api: schreibend } = plattform();
+		const ergebnis = await syncGruppe(schreibend, vault, zuordnung, false);
+		expect(ergebnis.fehler).toEqual([]);
+
+		const patch = http.calls.find((c) => c.method === "PATCH");
+		const body = patch?.body as { expected_updated_at: string; phasen: { id: string | null; dauer_min: number }[] };
+		expect(body.expected_updated_at).toBe("2026-09-10T12:00:00Z");
+		expect(body.phasen.map((p) => [p.id, p.dauer_min])).toEqual([["p1", 5], ["p2", 75], [null, 5]]);
+		// Der Rumpf bleibt, wie er im Vault steht.
+		expect(await vault.read(ZWEITE)).toContain("3. Abgabe (5 min)");
+
+		// Der nächste Lauf sieht den gespeicherten Stand — und hat nichts zu tun.
+		const danach = [{ ...knoten[0], updated_at: antwort.updated_at, metadata: { ...knoten[0]!.metadata, phasen: antwort.phasen } }];
+		const zweit = await syncGruppe(apiMit(stand, { "GET /context/nodes": danach }), vault, zuordnung, false);
+		expect(zweit.plan.ops.every((o) => o.art === "unveraendert")).toBe(true);
+	});
+
+	it("schreibt gegen eine zu alte Plattform nicht zurück", async () => {
+		const vault = await mitBearbeiteterStunde();
+		const { http, api: alt } = plattform({ "GET /health": { status: "ok", version: "0.12.1" } });
+		const ergebnis = await syncGruppe(alt, vault, zuordnung, false);
+		expect(ergebnis.fehler.join()).toContain("0.12.1");
+		expect(http.calls.some((c) => c.method === "PATCH")).toBe(false);
+	});
+
+	it("überschreibt bei 409 nichts und meldet es", async () => {
+		const vault = await mitBearbeiteterStunde();
+		const vorher = await vault.read(ZWEITE);
+		const { api: veraltet } = plattform({}, { [`PATCH /planning/lessons/${B}`]: 409 });
+		const ergebnis = await syncGruppe(veraltet, vault, zuordnung, false);
+		expect(ergebnis.fehler.join()).toContain("inzwischen geändert");
+		expect(await vault.read(ZWEITE)).toBe(vorher);
+	});
+
+	it("legt für einen gefüllten Platzhalter erst den Entwurf an, dann schreibt es", async () => {
+		const vault = new InMemoryVaultAdapter();
+		await syncGruppe(api(), vault, zuordnung, false);
+		await vault.write(ERSTE, (await vault.read(ERSTE)).replace("## Ablauf\n1.", "## Ablauf\n1. Einstieg (10 min)"));
+		const { http, api: schreibend } = plattform({
+			[`POST /planning/slots/${stand.slots[0]!.id}/lesson`]: { id: NEU, neu: true },
+			[`PATCH /planning/lessons/${NEU}`]: { ...antwort, stundenziel: null, phasen: [{ id: "q1", name: "Einstieg", dauer_min: 10 }] },
+		});
+		const ergebnis = await syncGruppe(schreibend, vault, zuordnung, false);
+		expect(ergebnis.fehler).toEqual([]);
+		expect(http.calls.map((c) => `${c.method} ${c.path}`)).toContain(`PATCH /planning/lessons/${NEU}`);
+		expect(http.calls.find((c) => c.method === "PATCH")?.body).not.toHaveProperty("expected_updated_at");
+		expect(await vault.read(ERSTE)).toContain(`uplan_node_id: ${NEU}`);
+	});
+
+	it("zeigt im Probelauf, was zurückginge, und schickt nichts", async () => {
+		const vault = await mitBearbeiteterStunde();
+		const { http, api: schreibend } = plattform();
+		const ergebnis = await syncGruppe(schreibend, vault, zuordnung, true);
+		expect(ergebnis.plan.ops.find((o) => o.pfad === ZWEITE)?.art).toBe("zurueckschreiben");
+		expect(http.calls.some((c) => c.method === "PATCH" || c.path === "/health")).toBe(false);
+	});
+});

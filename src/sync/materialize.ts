@@ -1,15 +1,27 @@
-import type { OverviewRead, SlotRead, UnitRead } from "../api/types";
+import type { LessonUpdate, OverviewRead, SlotRead, UnitRead } from "../api/types";
 import { hashObject } from "./hash";
 import {
 	REGION_ENDE,
 	VAULT_UEBERSCHRIFT,
 	extractOwnSection,
 	plattformRegion,
+	readFelder,
 	readScalars,
 	renderFrontmatter,
+	setzeFelder,
 	splitNote,
 	type FrontmatterValue,
 } from "./frontmatter";
+import {
+	ablaufAbschnitt,
+	gleichePhasen,
+	leseAblauf,
+	mischePhasen,
+	nutzlast,
+	rendereAblauf,
+	type Phase,
+	type VaultPhase,
+} from "./phasen";
 import {
 	baueLehrauftragsnotiz,
 	baueUeRumpf,
@@ -60,6 +72,11 @@ export interface GruppenZuordnung {
 export interface Stundenknoten {
 	id: string;
 	stundenziel: string | null;
+	phasen: Phase[];
+	/** Stempel des Knotens — für `expected_updated_at`, als Zeichenkette unverändert zurück. */
+	updated_at: string | null;
+	/** `false`: archiviert oder fremd, nur lesbar. `null`: nicht bekannt. */
+	darf_schreiben: boolean | null;
 }
 
 export interface MaterializeInput {
@@ -107,8 +124,12 @@ const KNOTEN_FELD = "uplan_node_id";
  *
  * 2: `UArt`/`UStand` statt `UStatus`, Dateiname aus dem Datum, `## Ablauf`, `## Notizen`.
  * 3: `Stundenziel` im Frontmatter.
+ * 4: `## Ablauf` aus den Phasen der Plattform; `UStand: Skizze`.
  */
-const NOTIZFORMAT = 3;
+const NOTIZFORMAT = 4;
+
+/** Höchstens so viele Rückschreibungen je Lauf — jede legt einen Snapshot an, die Plattform hält 50 je Gruppe. */
+export const RUECKSCHREIBUNGEN_JE_LAUF = 10;
 
 interface Stundennotiz {
 	notiz: VorhandeneNotiz;
@@ -332,9 +353,7 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		}
 
 		const { notiz, felder } = bestehend;
-		const vaultGeaendert =
-			felder["uplan_hash"] !== undefined &&
-			felder["uplan_hash"] !== hashPlattformRegion(notiz.inhalt);
+		const vaultGeaendert = !vaultHashPasst(felder["uplan_hash"], notiz.inhalt);
 		// Eine archivierte Notiz, deren Termin zurückkehrt, wird neu geschrieben, auch bei
 		// gleichem Serverstand — sonst bekäme sie ihren Namen zurück und bliebe archiviert.
 		const serverGeaendert = felder["uplan_server_hash"] !== serverHash || istArchiviert(felder);
@@ -350,13 +369,15 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		}
 
 		if (!serverGeaendert) {
-			// Nur der Vault hat sich bewegt. Zurückgeschrieben wird noch nicht; die Änderung
-			// bleibt stehen, bis der Rückkanal sie mitnimmt.
-			ops.push({
-				art: "unveraendert",
-				pfad,
-				grund: "nur Vault geändert — wird noch nicht zurückgeschrieben",
-			});
+			// Nur der Vault hat sich bewegt. Was davon dem Rückkanal gehört (Ablauf,
+			// Stundenziel), geht zur Plattform; alles andere bleibt als Vault-Änderung stehen.
+			ops.push(
+				planeRueckschreiben(notiz.inhalt, slot, stunde, pfad) ?? {
+					art: "unveraendert",
+					pfad,
+					grund: "nur Vault geändert — nichts davon gehört zum Rückkanal",
+				},
+			);
 			continue;
 		}
 
@@ -416,10 +437,28 @@ export function materialize(input: MaterializeInput): SyncPlan {
 		});
 	}
 
+	begrenzeRueckschreibungen(ops);
+
 	return {
 		gruppe: zuordnung.groupId,
 		ops: ordneKollisionsfrei(ops, new Set(vorhanden.map((n) => n.pfad))),
 	};
+}
+
+/**
+ * Über der Grenze wird zurückgehalten, nicht verworfen: Die Vault-Änderung bleibt stehen
+ * und kommt beim nächsten Lauf dran. Kein Dialog mitten im Sync — der läuft auch im
+ * Intervall, ohne dass jemand davor sitzt.
+ */
+function begrenzeRueckschreibungen(ops: SyncOp[]): void {
+	let gezaehlt = 0;
+	for (const op of ops) {
+		if (op.art !== "zurueckschreiben") continue;
+		if (++gezaehlt <= RUECKSCHREIBUNGEN_JE_LAUF) continue;
+		op.art = "zurueckgehalten";
+		op.grund = `mehr als ${RUECKSCHREIBUNGEN_JE_LAUF} Rückschreibungen in einem Lauf — kommt beim nächsten`;
+		delete op.rueckkanal;
+	}
 }
 
 /**
@@ -506,7 +545,10 @@ function serverNutzlast(slot: SlotRead, unit: UnitRead | undefined, stunde: Stun
 		kategorie: slot.kategorie,
 		thema: slot.thema,
 		note: slot.note,
-		hat_phasen: slot.hat_phasen,
+		// `hat_phasen` heißt auf der Plattform „Phasenliste nicht leer". Aus den Phasen
+		// abgeleitet, lässt es sich nach dem Zurückschreiben genau vorhersagen.
+		hat_phasen: stunde ? stunde.phasen.length > 0 : slot.hat_phasen,
+		ablauf: stunde ? rendereAblauf(stunde.phasen) : null,
 		nachbereitet_at: slot.nachbereitet_at,
 		ue_node_id: slot.ue_node_id,
 		stunde_node_id: slot.stunde_node_id,
@@ -587,7 +629,7 @@ export function baueStundennotiz(
 		UEinheit: unit ? `[[${slugify(unit.title)}]]` : null,
 		Datum: slot.date,
 		UArt: kategorieZuUArt(slot.kategorie),
-		UStand: slotZuUStand(slot),
+		UStand: slotZuUStand(slot, stunde?.phasen),
 		Stundenziel: stundenziel(stunde),
 		Inhalte: slot.thema ?? null,
 		UStunden: slot.periods,
@@ -618,9 +660,11 @@ export function baueStundennotiz(
 		"",
 		...(slot.note?.trim() ? ["## Hinweise", slot.note.trim(), ""] : []),
 		"## Ablauf",
-		slot.hat_phasen
-			? "_Der Entwurf liegt auf der Plattform. Hier erscheint er, sobald der Ablauf gespiegelt wird._"
-			: "1.",
+		...(stunde
+			? rendereAblauf(stunde.phasen)
+			: slot.stunde_node_id
+				? ["_Der Entwurf liegt auf der Plattform, ist hier aber nicht lesbar._"]
+				: ["1."]),
 		"",
 		REGION_ENDE,
 		"",
@@ -643,22 +687,187 @@ function setzeHash(inhalt: string): string {
 }
 
 /**
- * Der Vault-Hash: nur über die Plattform-Region, und dort **ohne** die `uplan_hash`-Zeile —
- * sonst hinge der Hash von sich selbst ab.
- *
- * Nur die Region, weil hinter `REGION_ENDE` nichts liegt, was der Sync überschreiben
- * könnte. Wer dort schreibt, hat für den Abgleich nichts geändert.
- *
- * Ohne Marker ist die Region die ganze Datei und der Hash derselbe wie vor der Umstellung:
- * Eine unberührte Bestandsnotiz darf nicht plötzlich als vault-geändert gelten.
- *
- * Gehasht wird noch der Text. Sobald `## Ablauf` geparst wird (AP5 im Notizformat-Plan),
- * tauscht diese Funktion ihr Innenleben gegen einen Hash über die Struktur — dann stört
- * auch eine von Obsidian neu ausgerichtete Tabelle nicht mehr.
+ * Die Frontmatter-Felder, die das Plugin in eine Stundennotiz schreibt — und nur die zählen
+ * für den Vault-Hash. Ein Tag oder eine eigene Eigenschaft, die jemand im Vault ergänzt,
+ * macht die Notiz deshalb nicht „geändert". Muss zu `baueStundennotiz` passen; ein Test
+ * hält das fest.
+ */
+export const STUNDEN_FELDER = [
+	"Kategorien",
+	"Lehrauftrag",
+	"UEinheit",
+	"Datum",
+	"UArt",
+	"UStand",
+	"Stundenziel",
+	"Inhalte",
+	"UStunden",
+	"uplan_slot_id",
+	"uplan_node_id",
+	"uplan_group_id",
+	"uplan_updated_at",
+	"uplan_server_hash",
+	"uplan_hash",
+	"uplan_status",
+] as const;
+
+/** Versionsmarke des Strukturhashs. Ein Hash ohne Marke stammt von der Textformel davor. */
+const STRUKTUR = "s1:";
+
+interface Struktur {
+	felder: Record<string, string | string[]>;
+	rumpf: string;
+	ablauf: VaultPhase[] | null;
+}
+
+/**
+ * Was in der Plattform-Region steht, als Struktur statt als Text: die eigenen
+ * Frontmatter-Felder gelesen statt abgeschrieben, der Rumpf ohne den Ablauf, und der Ablauf
+ * geparst. Obsidian richtet Tabellen neu aus und schreibt Eigenschaften in eigener Form —
+ * ein Texthash hielte das für eine Änderung.
+ */
+function struktur(inhalt: string): Struktur {
+	const { frontmatter, body } = splitNote(plattformRegion(inhalt));
+	const gelesen = readFelder(frontmatter);
+	const felder: Record<string, string | string[]> = {};
+	for (const key of STUNDEN_FELDER) {
+		const wert = gelesen[key];
+		if (key === "uplan_hash" || wert === undefined) continue;
+		felder[key] = typeof wert === "string" ? wert.trim() : wert;
+	}
+	const abschnitt = ablaufAbschnitt(body);
+	const zeilen = body.split("\n");
+	const rumpf = abschnitt
+		? [...zeilen.slice(0, abschnitt.start + 1), "§ablauf§", ...zeilen.slice(abschnitt.ende)].join("\n")
+		: body;
+	return { felder, rumpf: rumpf.trimEnd(), ablauf: leseAblauf(body)?.phasen ?? null };
+}
+
+/**
+ * Der Vault-Hash: nur über die Plattform-Region — hinter `REGION_ENDE` liegt nichts, was
+ * der Sync überschreiben könnte — und über ihre Struktur, nicht ihren Text.
  */
 export function hashPlattformRegion(inhalt: string): string {
-	const ohne = plattformRegion(inhalt).replace(/^uplan_hash:.*$/m, "uplan_hash:");
-	return hashObject(ohne);
+	return STRUKTUR + hashObject(struktur(inhalt));
+}
+
+/**
+ * Die Textformel bis AP5: Region als Text, ohne die `uplan_hash`-Zeile. Ohne Marker ist die
+ * Region die ganze Datei — derselbe Hash wie vor AP1.
+ */
+function textHash(inhalt: string): string {
+	return hashObject(plattformRegion(inhalt).replace(/^uplan_hash:.*$/m, "uplan_hash:"));
+}
+
+/**
+ * Passt der gespeicherte Hash zur Notiz? Ein Hash ohne Versionsmarke stammt von der
+ * Textformel und wird nach ihr geprüft — sonst gälte jede bestehende Notiz nach dem
+ * Umstieg als vault-geändert und jede Serveränderung als Konflikt. Ohne Hash gilt die
+ * Notiz als unverändert, wie bisher.
+ */
+function vaultHashPasst(gespeichert: string | undefined, inhalt: string): boolean {
+	if (gespeichert === undefined) return true;
+	return gespeichert.startsWith(STRUKTUR)
+		? gespeichert === hashPlattformRegion(inhalt)
+		: gespeichert === textHash(inhalt);
+}
+
+// ── Rückkanal ────────────────────────────────────────────────────────────────
+
+function zurueckgehalten(pfad: string, grund: string): SyncOp {
+	return { art: "zurueckgehalten", pfad, grund };
+}
+
+/**
+ * Was aus einer vault-geänderten Notiz zur Plattform geht — nur gerufen, wenn sich der
+ * Serverstand seit dem letzten Lauf nicht bewegt hat. Dann ist der aktuelle Phasenstand der
+ * Plattform genau die Basis, aus der die Notiz gerendert wurde, und die Vault-Zeilen lassen
+ * sich ihm zuordnen.
+ *
+ * `null`, wenn nichts davon dem Rückkanal gehört — dann war es eine Änderung an einem
+ * read-only Feld, und die bleibt als Vault-Änderung stehen.
+ */
+function planeRueckschreiben(
+	inhalt: string,
+	slot: SlotRead,
+	stunde: Stundenknoten | undefined,
+	pfad: string,
+): SyncOp | null {
+	const { frontmatter, body } = splitNote(plattformRegion(inhalt));
+	const ablauf = leseAblauf(body);
+	const serverPhasen = stunde?.phasen ?? [];
+	const phasen = ablauf ? mischePhasen(serverPhasen, ablauf.phasen) : null;
+	const phasenNeu = phasen !== null && !gleichePhasen(phasen, serverPhasen.map(nutzlast));
+
+	const zielWert = readFelder(frontmatter)["Stundenziel"];
+	const ziel = typeof zielWert === "string" ? zielWert.trim() : "";
+	const zielNeu = ziel !== (stunde?.stundenziel ?? "").trim();
+
+	if (!phasenNeu && !zielNeu && !ablauf?.fehler.length) return null;
+	if (slot.stunde_node_id && !stunde) return zurueckgehalten(pfad, "Entwurf auf der Plattform nicht lesbar");
+	if (ablauf && ablauf.fehler.length > 0) return zurueckgehalten(pfad, ablauf.fehler.join("; "));
+	if (stunde?.darf_schreiben === false) return zurueckgehalten(pfad, "Entwurf ist auf der Plattform nur lesbar");
+
+	const nutzlastNeu: LessonUpdate = {};
+	if (phasenNeu) nutzlastNeu.phasen = phasen;
+	// Ein leerer String leert das Stundenziel; `null` ließe es stehen.
+	if (zielNeu) nutzlastNeu.stundenziel = ziel;
+	if (stunde?.updated_at) nutzlastNeu.expected_updated_at = stunde.updated_at;
+
+	const was = [
+		...(slot.stunde_node_id ? [] : ["neuer Entwurf"]),
+		...(phasenNeu ? [`${phasen?.length ?? 0} Phasen`] : []),
+		...(zielNeu ? ["Stundenziel"] : []),
+	];
+	return {
+		art: "zurueckschreiben",
+		pfad,
+		rueckkanal: {
+			slotId: slot.id,
+			knotenId: slot.stunde_node_id,
+			nutzlast: nutzlastNeu,
+			vaultAblauf: ablauf?.phasen ?? null,
+		},
+		grund: was.join(", "),
+	};
+}
+
+export interface NachDemZurueckschreiben {
+	zuordnung: GruppenZuordnung;
+	overview: OverviewRead;
+	/** Die Notiz, wie sie jetzt in der Datei steht. */
+	inhalt: string;
+	slotId: string;
+	/** Der Stand nach dem Schreiben — aus der Antwort der Plattform (0.13, P3). */
+	stunde: Stundenknoten;
+	/** Der Ablauf, wie er beim Planen im Vault stand (`Rueckkanal.vaultAblauf`). */
+	vaultAblauf: unknown;
+}
+
+/**
+ * Die Notiz nach einem erfolgreichen Zurückschreiben. Der Rumpf bleibt, wie er ist — eine
+ * Liste bleibt eine Liste; neu gerendert wird erst, wenn sich auf der Plattform etwas
+ * ändert. Gesetzt werden nur die Buchführungsfelder.
+ *
+ * Der neue `uplan_hash` entsteht aus der Notiz, wie sie aus dem Serverstand gerendert
+ * würde, mit dem Ablauf aus dem Vault. Stimmt der Rest der Notiz damit überein, ist sie
+ * danach unverändert. Hat jemand ein read-only Feld geändert (etwa `Inhalte`), bleibt das
+ * als Vault-Änderung sichtbar, statt eingemeindet und beim nächsten Serverstand still
+ * überschrieben zu werden.
+ */
+export function nachDemZurueckschreiben(args: NachDemZurueckschreiben): string {
+	const vorher = args.overview.slots.find((s) => s.id === args.slotId);
+	if (!vorher) return args.inhalt;
+	const slot: SlotRead = { ...vorher, stunde_node_id: args.stunde.id };
+	const unit = slot.ue_node_id ? args.overview.units.find((u) => u.id === slot.ue_node_id) : undefined;
+	const serverHash = hashObject(serverNutzlast(slot, unit, args.stunde));
+	const ideal = struktur(baueStundennotiz(args.zuordnung, slot, unit, args.stunde, serverHash, ""));
+	return setzeFelder(args.inhalt, {
+		UStand: slotZuUStand(slot, args.stunde.phasen),
+		uplan_node_id: args.stunde.id,
+		uplan_server_hash: serverHash,
+		uplan_hash: STRUKTUR + hashObject({ ...ideal, ablauf: args.vaultAblauf ?? null }),
+	});
 }
 
 function setzeStatusArchiviert(inhalt: string): string {

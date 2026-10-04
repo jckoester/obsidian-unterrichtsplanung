@@ -28,9 +28,10 @@ Plan und Projektstand liegen im Vault unter `PKM/Projekte/Unterrichtsplanung-Syn
 - **Stufe 1 (Pull-Spiegel) fertig und im Alltag getestet**: Lehrauftrags-, UE- und Stundennotizen, Probelauf, Archivieren, Konfliktblöcke.
 - **Stufe 2 folgt `Plan-Notizformat.md`** (bestätigt am 03.10.2026), nicht mehr dem älteren Rückkanal für `kategorie`/`thema`/`note`. Reihenfolge: AP0 (Reste der `ggd_`-Umbenennung) und AP1 (Hash-Regionen) → AP3 + AP2 zusammen (`UArt`/`UStand`, Anker am Stundenknoten, Dateiname aus dem Datum) → AP6 (Stundenknoten gesammelt laden) → AP5 (`## Ablauf` lesen und schreiben, der erste Rückkanal). AP4 (optionale Phasendauer) ist Plattformarbeit und läuft unabhängig.
 - **AP0 bis AP3 sind erledigt** (03.10.2026). Die Umbenennung ist vollständig, und `<!-- uplan:ende -->` begrenzt Hash und Vault-Teil. Stundennotizen tragen `UArt`/`UStand` statt `UStatus`, heißen nach ihrem Datum und ankern am Stundenknoten.
-- **AP6 ist erledigt** (03.10.2026): Stundenknoten kommen gesammelt über `/context/nodes`, mit Einzelabruf als Rückfall; das Stundenziel steht read-only im Frontmatter. Gegen die Dev-Instanz geprüft — Gruppe 31 trägt dafür Testentwürfe (Einheit „UE1 - Getriebe (Testdaten)", Slots 15.–29.09.). Als Nächstes AP5 — es wartet auf die Plattform: `PKM/Projekte/Konzeption GGD KI Client/Plaene/Phasen-Rueckkanal-Plattform-Plan.md` (P1 Phasen ohne Dauer, P2 Phasenfelder überleben das Speichern, P3 `PATCH /planning/lessons` antwortet mit dem gespeicherten Stand, P4 Version in `/health`). Jan setzt die Pakete in der Plattform um, bevor es hier weitergeht. Das Plugin soll vor dem ersten Zurückschreiben über `/health` prüfen, ob die Plattform sie hat.
+- **AP6 ist erledigt** (03.10.2026): Stundenknoten kommen gesammelt über `/context/nodes`, mit Einzelabruf als Rückfall; das Stundenziel steht read-only im Frontmatter. Gegen die Dev-Instanz geprüft — Gruppe 31 trägt dafür Testentwürfe (Einheit „UE1 - Getriebe (Testdaten)", Slots 15.–29.09.).
+- **AP5 ist gebaut** (03.10.2026): `## Ablauf` wird aus den Phasen gespiegelt und zurückgeschrieben, ebenso das Stundenziel — der erste echte Rückkanal. Er setzt Plattform 0.13.0 voraus (`PKM/Projekte/Konzeption GGD KI Client/Plaene/Phasen-Rueckkanal-Plattform-Plan.md`: Phasen ohne Dauer, Phasenfelder überleben das Speichern, `PATCH` antwortet mit dem gespeicherten Stand, Version in `/health`). Gegen die Dev-Instanz geprüft bis auf das eigentliche Schreiben: Das Dev-Backend meldete noch `0.12.1` (Neustart nach dem Versionssprung fehlte), und das Plugin schrieb zu Recht nicht.
 - **Die Dev-Instanz** läuft unter `http://localhost:5173/api` (Vite-Proxy). Für Experimente ohne Obsidian lässt sich der echte Runner mit einem `fetch`-Nachbau von `requestUrl` und `InMemoryVaultAdapter` gegen sie fahren — den Token aus `data.json` nie ausgeben.
-- Der Schreibpfad (`patchSlot`, `patchLesson`) ist im API-Client vorhanden, aber unbenutzt. Stufe 4 (Kontextspeicher-Breite) ist nicht angefangen.
+- `patchSlot` ist im API-Client vorhanden, aber unbenutzt (Thema und Hinweise sind read-only). Stufe 4 (Kontextspeicher-Breite) ist nicht angefangen.
 
 ## Commands
 
@@ -109,7 +110,8 @@ src/
     materialize.ts     REIN: Plan bauen
     notizen.ts         Notizformate (Lehrauftrag, UE), Slug, Datum
     frontmatter.ts     Lesen tolerant, Schreiben streng; Marker-Abschnitt
-    status.ts          kategorie → UArt, Slot → UStand — die einzige Stelle
+    phasen.ts          REIN: ## Ablauf lesen (Tabelle/Liste), rendern, Plattformphasen zuordnen und mischen
+    status.ts          kategorie → UArt, Slot + Phasen → UStand — die einzige Stelle
     hash.ts            FNV-1a 64 Bit, stabile JSON-Darstellung
     plan.ts            SyncOp, SyncPlan, Zusammenfassung
     runner.ts          UNREIN: holen, planen, ausführen
@@ -131,7 +133,9 @@ Im Frontmatter jeder Notiz, kein separater Store:
 | `uplan_hash` | Hash der zuletzt geschriebenen Plattform-Region → Vault-Dirty |
 | `uplan_status` | `aktiv` / `archiviert` |
 
-`uplan_hash` wird nur über die **Plattform-Region** gebildet — Frontmatter und Rumpf bis vor `<!-- uplan:ende -->` — und dort **ohne die `uplan_hash`-Zeile**, sonst hinge der Hash von sich selbst ab (`hashPlattformRegion`). Was hinter dem Marker steht, gehört dem Vault und ist für den Abgleich keine Änderung. Fehlt der Marker (Altbestand), ist die Region die ganze Datei und der Hash bitgleich mit dem von vorher; der Test `alsAltbestand` hält diesen Vertrag fest.
+`uplan_hash` wird nur über die **Plattform-Region** gebildet — Frontmatter und Rumpf bis vor `<!-- uplan:ende -->` — und zwar **über ihre Struktur, nicht ihren Text** (`hashPlattformRegion`, Marke `s1:`): die eigenen Frontmatter-Felder (`STUNDEN_FELDER`, ohne `uplan_hash`) gelesen statt abgeschrieben, der Rumpf ohne den Ablauf, der Ablauf geparst. Obsidian richtet Tabellen neu aus und schreibt Eigenschaften in eigener Form — ein Texthash hielte das für eine Änderung. Eine eigene Eigenschaft (etwa `tags`) macht die Notiz nicht „geändert". Was hinter dem Marker steht, gehört dem Vault und zählt nicht.
+
+**Ein Hash ohne Marke stammt von der Textformel davor** und wird nach ihr geprüft (`vaultHashPasst`) — sonst gälte jede bestehende Notiz nach dem Umstieg als vault-geändert. Fehlt der Marker `<!-- uplan:ende -->` (Altbestand), ist die Region die ganze Datei; der Test `alsAltbestand` hält diesen Vertrag fest.
 
 **Der Hash entscheidet, nicht der Zeitstempel.** Seit Plattform 0.10 schreibt `onupdate` den Stempel fort, aber mit Lücken: Er steht still bei reinen Alias-Änderungen, bei einem bloßen Kapitelwechsel einer Einheit und bei rohem SQL. Ein stehender Zeitstempel beweist deshalb nichts. Er darf die Prüfung abkürzen (gleich → sicher unverändert), aber nie entscheiden.
 
@@ -151,6 +155,16 @@ Diese vier gelten ohne Ausnahme. Wer eine davon aufweicht, ändert den Charakter
 4. **Die Lehrauftragsnotiz wird nur angelegt, nie angefasst**, wenn sie schon existiert.
 
 Bei beidseitiger Änderung gewinnt die Plattform; die Vault-Fassung wandert als Block in dieselbe Notiz.
+
+### Der Rückkanal (AP5)
+
+Zurückgeschrieben werden **nur `## Ablauf` und das Stundenziel**, und nur, wenn sich die Plattform seit dem letzten Lauf **nicht** bewegt hat. Dann ist ihr aktueller Phasenstand genau die Basis, aus der die Notiz gerendert wurde: Vault-Zeilen werden ihm zugeordnet (erst gleicher Name, dann Position), und auf jede Phase kommen nur die Felder, die die Darstellung im Vault ausdrückt (`mischePhasen`). Geschickt werden nur die Schemafelder; `status`, `kuerzung`, `uebertrag_von` übernimmt die Plattform selbst, solange die `id` mitkommt.
+
+- `materialize()` plant das als Operation `zurueckschreiben` mit Nutzlast; der Runner führt sie nach den Dateioperationen aus. Der Probelauf zeigt sie, ohne etwas zu schicken.
+- Vorher einmal `/health`: unter `0.13.0` (oder `unbekannt`) wird nur gelesen.
+- **Nach dem Schreiben bleibt der Rumpf, wie er ist** (Jans Entscheidung) — gesetzt werden nur Buchführungsfelder (`nachDemZurueckschreiben`). Der neue `uplan_hash` entsteht aus der Notiz, wie sie aus dem Serverstand gerendert würde, mit dem Ablauf aus dem Vault: So bleibt eine Änderung an einem read-only Feld sichtbar, statt eingemeindet zu werden.
+- **Zurückgehalten** (`zurueckgehalten`, im Ergebnisfenster mit Grund): was die Plattform ablehnen würde (Name > 200, Dauer außerhalb 1–480 oder unlesbar, unbekannte Prio), nur lesbare Entwürfe, und alles über 10 je Lauf.
+- Ein gefüllter Platzhalter bekommt erst einen Entwurf (`POST /planning/slots/{id}/lesson`), dann wird geschrieben. Ein 409 überschreibt nichts; der nächste Lauf macht einen Konfliktblock daraus.
 
 ### Vault-Konventionen
 
@@ -180,15 +194,17 @@ Basis-URL enthält `/api` (das Präfix hängt der Reverse-Proxy davor, FastAPI b
 
 Alles andere gibt 403 „Dieser Bereich ist für Zugangstoken gesperrt", auch `/tokens/scopes` und der übrige `/groups`-Router. **Dieselbe Meldung kommt, wenn der Pfad erlaubt ist, dem Token aber der Scope fehlt** (`pruefe_zugang`) — ein 403 auf `/context/nodes` heißt deshalb fast immer: kein `context:read`. Der Verbindungstest probt es eigens (`gruppenprobe` → `stundenLesbar`). Schreiben impliziert Lesen **nicht**. Wer einen neuen Endpunkt benutzen will, ergänzt zuerst eine Zeile in `_ZUSTAENDIG` und zieht `backend/tests/unit/test_token_scopes.py` nach — so eng wie der Zweck, nicht so weit wie der Router.
 
-Tatsächlich benutzt: `GET /groups/me` (Verbindungstest), `GET /planning/groups/{id}/overview` (Slots **und** Einheiten), `GET /context/nodes?content_type=unterrichtsstunde&group_id={g}&limit=500&offset=…` (alle Stundenknoten einer Gruppe — Stundenziel, später Phasen), `GET /planning/lessons/{id}` (Rückfall, siehe unten), `GET /planning/groups/{id}/curriculum-chapters` (Jahrgang vorbefüllen). **Der Token braucht `planning:read` und `context:read`.**
+Tatsächlich benutzt: `GET /groups/me` (Verbindungstest), `GET /planning/groups/{id}/overview` (Slots **und** Einheiten), `GET /context/nodes?content_type=unterrichtsstunde&group_id={g}&limit=500&offset=…` (alle Stundenknoten einer Gruppe — Stundenziel und Phasen), `GET /planning/lessons/{id}` (Rückfall, siehe unten), `GET /planning/groups/{id}/curriculum-chapters` (Jahrgang vorbefüllen), `GET /health` (Version vor dem Zurückschreiben), `PATCH /planning/lessons/{id}` und `POST /planning/slots/{id}/lesson` (Rückkanal). **Der Token braucht `planning:read`, `context:read` und `planning:write`.**
 
-**Stundenknoten: gesammelt, mit Einzelabruf als Rückfall** (`holeStundenknoten` in `runner.ts`). Einzeln für jede Stunde wären es 40 bis 120 Anfragen pro Lauf gegen eine gedrosselte API. Der Sammelabruf filtert aber über `read_scope_group_id`, und das trifft nicht alles, was an einem Slot hängen kann: `PATCH /planning/slots/{id}` prüft die Gruppe eines `stunde_node_id` nicht, und `POST /context/nodes/{id}/copy` lässt einer Kopie die Gruppe ihrer Quelle (etwa der Vorjahresgruppe). Was im Sammelabruf fehlt, wird deshalb über `/planning/lessons/{id}` nachgeholt; ist es auch dort nicht lesbar (403/404), bleibt das Stundenziel leer. Ein 403 auf den Sammelabruf selbst bricht ab — ein stiller Rückfall auf „ohne Stundenziel" ließe bei jedem Wechsel alle Notizen neu schreiben.
+**Stundenknoten: gesammelt, mit Einzelabruf als Rückfall** (`holeStundenknoten` in `runner.ts`). Einzeln für jede Stunde wären es 40 bis 120 Anfragen pro Lauf gegen eine gedrosselte API. Der Sammelabruf filtert aber über `read_scope_group_id`, und das trifft nicht alles, was an einem Slot hängen kann: Bis Plattform 0.12.0 prüfte `PATCH /planning/slots/{id}` die Gruppe eines `stunde_node_id` nicht (seit 0.12.1 schon, `planning/zuordnung.py`), und was davor angehängt wurde, hängt weiter. Was im Sammelabruf fehlt, wird deshalb über `/planning/lessons/{id}` nachgeholt; ist es auch dort nicht lesbar (403/404), bleibt das Stundenziel leer. Ein 403 auf den Sammelabruf selbst bricht ab — ein stiller Rückfall auf „ohne Stundenziel" ließe bei jedem Wechsel alle Notizen neu schreiben.
 
-Im Client vorhanden, aber ungenutzt: `GET /planning/groups/{id}/units` (die Übersicht liefert sie schon mit), `GET /planning/lessons/{id}/export` sowie beide `PATCH`-Wege.
+Im Client vorhanden, aber ungenutzt: `GET /planning/groups/{id}/units` (die Übersicht liefert sie schon mit), `GET /planning/lessons/{id}/export`, `PATCH /planning/slots/{id}`.
 
 **Snapshots muss das Plugin nicht selbst anlegen — und darf nicht verschwenderisch schreiben.** `PATCH /planning/lessons/{id}` legt bei **jedem** Aufruf einen an, `PATCH /planning/slots/{id}` bei Änderungen an `ue_node_id`, `stunde_node_id`, `thema` oder `kategorie`. Die Plattform hält nur 50 Snapshots je Gruppe; ein Lauf, der dreißig Stunden zurückschreibt, löscht die Undo-Historie. Nur wirklich vault-geänderte Stunden schreiben.
 
-**`expected_updated_at`** gibt es auf `SlotUpdate` und `LessonUpdate`: Stimmt der mitgeschickte Stand nicht mehr, antwortet die Plattform mit 409 statt still zu überschreiben. Geprüft wird auf **exakte Gleichheit** — die Plattform hält Mikrosekunden, JavaScripts `Date` nur Millisekunden. Den Serverwert deshalb als Zeichenkette unverändert zurückschicken, nie über `Date`. Bei Stunden vergleicht die Plattform mit dem Stempel des **Stundenknotens**, nicht des Slots; die Übersicht liefert ihn nicht. `PATCH /planning/lessons/{id}` antwortet mit `{ok, updated_at}`, nicht mit einer `LessonRead`.
+**`expected_updated_at`** gibt es auf `SlotUpdate` und `LessonUpdate`: Stimmt der mitgeschickte Stand nicht mehr, antwortet die Plattform mit 409 statt still zu überschreiben. Geprüft wird auf **exakte Gleichheit** — die Plattform hält Mikrosekunden, JavaScripts `Date` nur Millisekunden. Den Serverwert deshalb als Zeichenkette unverändert zurückschicken, nie über `Date`. Bei Stunden vergleicht die Plattform mit dem Stempel des **Stundenknotens**, nicht des Slots; die Übersicht liefert ihn nicht, der Sammelabruf schon. `PATCH /planning/lessons/{id}` antwortet seit 0.13 mit `{ok, updated_at, phasen, stundenziel}` — dem gespeicherten Stand.
+
+**Die Plattformversion wird beim ersten Aufruf von `/health` gelesen und gemerkt.** Das Neuladen des Dev-Backends reagiert nur auf Python-Dateien: Nach einem Sprung in `backend/VERSION` meldet die Dev-Instanz die alte Version, bis das Backend neu startet — und das Plugin schreibt dann zu Recht nicht zurück.
 
 **Phasen nur über `/planning/lessons` schreiben.** `PATCH /context/nodes` validiert Phasen gegen `taxonomy.py:362`, das `titel` und `status` verlangt — der Planer schreibt `name` ohne `status`, also scheitert dort jede Planer-Stunde mit 422.
 
@@ -198,7 +214,7 @@ Im Client vorhanden, aber ungenutzt: `GET /planning/groups/{id}/units` (die Übe
 
 `npm test` läuft ohne Obsidian, ohne Server und ohne Token — über `FixtureHttpClient` und `InMemoryVaultAdapter`. Neue Sync-Logik gehört in `materialize()` und wird dort geprüft, nicht über die Oberfläche.
 
-Geprüft werden **Zusagen, nicht Zeilen**: Idempotenz (zweiter Lauf ändert nichts), Server-Änderung, beidseitiger Konflikt, Erhalt des vault-eigenen Abschnitts — und dass eine Zeile darin kein Konflikt ist —, Altbestand ohne Marker hasht wie vorher, eine Stufe-1-Notiz wird einmal ins neue Format überführt, Archivieren statt Löschen, Umbenennen statt Duplizieren, unangetasteter UE-Rumpf; beim Anker: ein Swap lässt die Notizen mit ihren Stunden wandern, der erste Entwurf übernimmt den Platzhalter, ein verdrängter Platzhalter heißt „ersetzt" — und die Ausführung des Plans: eine vorne eingefügte Stunde verliert keine Notiz, ein Ringtausch der Namen löst sich auf, eine vault-eigene Datei auf dem Zielpfad wird gemeldet statt überschrieben, eine archivierte Notiz lebt wieder auf.
+Geprüft werden **Zusagen, nicht Zeilen**: Idempotenz (zweiter Lauf ändert nichts), Server-Änderung, beidseitiger Konflikt, Erhalt des vault-eigenen Abschnitts — und dass eine Zeile darin kein Konflikt ist —, Altbestand ohne Marker hasht wie vorher, eine Stufe-1-Notiz wird einmal ins neue Format überführt, Archivieren statt Löschen, Umbenennen statt Duplizieren, unangetasteter UE-Rumpf; beim Anker: ein Swap lässt die Notizen mit ihren Stunden wandern, der erste Entwurf übernimmt den Platzhalter, ein verdrängter Platzhalter heißt „ersetzt"; beim Rückkanal: Roundtrips von Skizze und Tabelle sind zeichengleich, eine neu ausgerichtete Tabelle oder eine eigene Eigenschaft ist keine Änderung, Prio und Material überleben eine Liste, Bausteinverweise überleben gleichen Text, nach dem Schreiben ist der nächste Lauf ruhig, eine read-only Änderung wird nicht eingemeindet, zu alte Plattform und 409 schreiben nichts — und die Ausführung des Plans: eine vorne eingefügte Stunde verliert keine Notiz, ein Ringtausch der Namen löst sich auf, eine vault-eigene Datei auf dem Zielpfad wird gemeldet statt überschrieben, eine archivierte Notiz lebt wieder auf.
 
 Das `InMemoryVaultAdapter` ist dabei **so streng wie Obsidian**: Umbenennen auf einen belegten Pfad wirft. Ein nachsichtiges Testdoppel hat genau diesen Fehler einmal lange verdeckt.
 

@@ -67,20 +67,37 @@ export interface UnitRead {
 	updated_at: IsoDateTime;
 }
 
-export interface LessonPhase {
-	id?: string;
+/** `LessonLinkedItem`: Freitext (`wert`) oder Verweis auf einen Baustein (`node_id`, `titel`). */
+export interface LessonLinkedItem {
+	typ: string;
+	wert: string | null;
+	node_id: Uuid | null;
+	titel: string | null;
+}
+
+/**
+ * `LessonPhaseItem` — die Schemafelder einer Phase, genau das, was ein Editor zurückschickt.
+ * Felder darüber hinaus (`status`, `kuerzung`, `uebertrag_von`) übernimmt die Plattform seit
+ * 0.13 selbst aus dem gespeicherten Stand, sofern die `id` mitkommt.
+ */
+export interface LessonPhaseItem {
+	id: string | null;
 	name: string;
-	dauer_min: number;
-	beschreibung?: string | null;
-	prio?: "kern" | "uebung" | "vertiefung" | string;
-	[key: string]: unknown;
+	/** `null` seit 0.13: eine Phase ohne Dauer (Skizze). */
+	dauer_min: number | null;
+	beschreibung: string | null;
+	prio: string;
+	sozialform: LessonLinkedItem | null;
+	methode: LessonLinkedItem | null;
+	material: LessonLinkedItem[];
 }
 
 export interface LessonRead {
 	id: Uuid;
 	titel: string;
 	stundenziel: string | null;
-	phasen: LessonPhase[];
+	/** Roh, wie gespeichert — gelesen über `normalisierePhasen`. */
+	phasen: unknown[];
 	refs: unknown[];
 	refs_dismissed: string[];
 	ue: { id: Uuid; titel: string; farbe: number } | null;
@@ -109,6 +126,8 @@ export interface ContextNodeRead {
 	status: string;
 	read_scope_group_id: number | null;
 	updated_at: IsoDateTime;
+	/** Von der Liste gesetzt; `null` heißt „nicht geprüft", nicht „nein". */
+	darf_schreiben?: boolean | null;
 }
 
 export interface OverviewRead {
@@ -136,6 +155,17 @@ export interface SlotUpdate {
 
 export interface LessonUpdate {
 	titel?: string;
+	/** `""` leert das Stundenziel; `null` oder Fehlen lässt es stehen. */
 	stundenziel?: string;
+	phasen?: LessonPhaseItem[];
+	/** Exakt der Serverwert als Zeichenkette — die Plattform vergleicht auf Gleichheit. */
 	expected_updated_at?: IsoDateTime;
+}
+
+/** Antwort auf `PATCH /planning/lessons/{id}` seit 0.13 (P3): der gespeicherte Stand. */
+export interface LessonPatchAntwort {
+	ok: boolean;
+	updated_at: IsoDateTime;
+	phasen: unknown[];
+	stundenziel: string | null;
 }

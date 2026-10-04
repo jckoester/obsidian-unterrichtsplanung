@@ -59,52 +59,96 @@ export function splitNote(content: string): NoteParts {
 	return { frontmatter: "", body: content };
 }
 
-/** Skalare Top-Level-Schlüssel. Listen und verschachtelte Blöcke werden übersprungen. */
+/** Skalare Top-Level-Schlüssel mit Wert. Listen und leere Felder fehlen. */
 export function readScalars(frontmatter: string): Record<string, string> {
 	const out: Record<string, string> = {};
-	for (const line of frontmatter.split("\n")) {
-		const match = /^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(line);
-		if (!match) continue;
-		const value = (match[2] ?? "").trim();
-		if (value === "") continue;
-		out[match[1] as string] = stripQuotes(value);
+	for (const [key, value] of Object.entries(readFelder(frontmatter))) {
+		if (typeof value === "string" && value !== "") out[key] = value;
 	}
 	return out;
 }
 
-function stripQuotes(value: string): string {
-	if (
-		(value.startsWith('"') && value.endsWith('"')) ||
-		(value.startsWith("'") && value.endsWith("'"))
-	) {
-		return value.slice(1, -1);
+const SCHLUESSEL = /^([\p{L}_][\p{L}\p{N}_]*):\s*(.*)$/u;
+
+/**
+ * Alle Top-Level-Felder in der Form, die das Plugin selbst schreibt: Skalare (auch in
+ * Anführungszeichen, mit Escapes), Blockskalare (`|-`) und einfache Listen (`  - x`).
+ * Leere Felder ergeben `""`. Kein YAML-Parser — der wäre im Bundle teurer als der Nutzen,
+ * und gelesen wird nur, was das Plugin auch schreibt.
+ *
+ * Wichtig ist das für den Rückkanal: Das Stundenziel muss sich so lesen lassen, wie es
+ * geschrieben wurde, sonst sähe ein escaptes `"` jedes Mal wie eine Änderung aus.
+ */
+export function readFelder(frontmatter: string): Record<string, string | string[]> {
+	const out: Record<string, string | string[]> = {};
+	const zeilen = frontmatter.split("\n");
+	for (let i = 0; i < zeilen.length; i++) {
+		const match = SCHLUESSEL.exec(zeilen[i] as string);
+		if (!match) continue;
+		const key = match[1] as string;
+		const value = (match[2] ?? "").trim();
+		const folgende: string[] = [];
+		while (i + 1 < zeilen.length && !SCHLUESSEL.test(zeilen[i + 1] as string)) folgende.push(zeilen[++i] as string);
+
+		if (/^[|>][-+]?$/.test(value)) {
+			const block = folgende.map((z) => z.replace(/^ {2}/, ""));
+			while (block.length > 0 && block[block.length - 1] === "") block.pop();
+			out[key] = value.startsWith(">") ? block.join(" ") : block.join("\n");
+		} else if (value === "" && folgende.some((z) => /^\s*- /.test(z))) {
+			out[key] = folgende.filter((z) => /^\s*- /.test(z)).map((z) => unquote(z.replace(/^\s*- /, "").trim()));
+		} else {
+			out[key] = unquote(value);
+		}
+	}
+	return out;
+}
+
+function unquote(value: string): string {
+	if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+		return value.slice(1, -1).replace(/\\(["\\])/g, "$1");
+	}
+	if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+		return value.slice(1, -1).replace(/''/g, "'");
 	}
 	return value;
 }
 
 export type FrontmatterValue = string | number | boolean | null | string[];
 
+/** Die Zeilen eines Feldes — eine Stelle für das Format, damit `setzeFelder` gleich schreibt. */
+function renderFeld(key: string, value: FrontmatterValue | undefined): string[] {
+	if (value === null || value === undefined) return [`${key}:`];
+	if (Array.isArray(value)) return [`${key}:`, ...value.map((item) => `  - ${quoteIfNeeded(item)}`)];
+	if (typeof value === "string" && value.includes("\n")) {
+		// Mehrzeilig als Blockskalar. In Anführungszeichen faltete YAML die Umbrüche zu
+		// Leerzeichen, und eine nicht eingerückte Folgezeile zerbräche das Frontmatter.
+		return [`${key}: |-`, ...value.split("\n").map((zeile) => (zeile ? `  ${zeile}` : ""))];
+	}
+	if (typeof value === "string") return [`${key}: ${quoteIfNeeded(value)}`];
+	return [`${key}: ${value}`];
+}
+
 export function renderFrontmatter(fields: Record<string, FrontmatterValue>): string {
 	const lines: string[] = [FRONTMATTER_GRENZE];
-	for (const [key, value] of Object.entries(fields)) {
-		if (value === null || value === undefined) {
-			lines.push(`${key}:`);
-		} else if (Array.isArray(value)) {
-			lines.push(`${key}:`);
-			for (const item of value) lines.push(`  - ${quoteIfNeeded(item)}`);
-		} else if (typeof value === "string" && value.includes("\n")) {
-			// Mehrzeilig als Blockskalar. In Anführungszeichen faltete YAML die Umbrüche zu
-			// Leerzeichen, und eine nicht eingerückte Folgezeile zerbräche das Frontmatter.
-			lines.push(`${key}: |-`);
-			for (const zeile of value.split("\n")) lines.push(zeile ? `  ${zeile}` : "");
-		} else if (typeof value === "string") {
-			lines.push(`${key}: ${quoteIfNeeded(value)}`);
-		} else {
-			lines.push(`${key}: ${value}`);
-		}
-	}
+	for (const [key, value] of Object.entries(fields)) lines.push(...renderFeld(key, value));
 	lines.push(FRONTMATTER_GRENZE);
 	return lines.join("\n");
+}
+
+/**
+ * Setzt einzelne einzeilige Felder und lässt alles andere Zeichen für Zeichen stehen —
+ * auch das, was jemand im Vault geändert hat. Fehlt ein Feld, kommt es ans Ende.
+ */
+export function setzeFelder(inhalt: string, werte: Record<string, string | number | null>): string {
+	const { frontmatter, body } = splitNote(inhalt);
+	const zeilen = frontmatter.split("\n");
+	for (const [key, value] of Object.entries(werte)) {
+		const [zeile] = renderFeld(key, value);
+		const index = zeilen.findIndex((z) => z.startsWith(`${key}:`));
+		if (index === -1) zeilen.push(zeile as string);
+		else zeilen[index] = zeile as string;
+	}
+	return `${FRONTMATTER_GRENZE}\n${zeilen.join("\n")}\n${FRONTMATTER_GRENZE}\n${body}`;
 }
 
 function quoteIfNeeded(value: string): string {

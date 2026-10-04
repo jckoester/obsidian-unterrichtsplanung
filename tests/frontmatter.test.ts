@@ -3,9 +3,11 @@ import {
 	ALTE_VAULT_UEBERSCHRIFT,
 	extractOwnSection,
 	plattformRegion,
+	readFelder,
 	readScalars,
 	REGION_ENDE,
 	renderFrontmatter,
+	setzeFelder,
 	splitNote,
 } from "../src/sync/frontmatter";
 
@@ -68,5 +70,24 @@ describe("frontmatter", () => {
 	it("zählt den Marker nur als ganze Zeile", () => {
 		const zitat = `Die Grenze heißt ${REGION_ENDE} und steht weiter unten.\n`;
 		expect(plattformRegion(zitat)).toBe(zitat);
+	});
+
+	// Der Rückkanal liest das Stundenziel so zurück, wie das Plugin es schreibt. Läse er ein
+	// escaptes Anführungszeichen anders, sähe jeder Lauf eine Änderung und schriebe zurück.
+	it("liest zurück, was es schreibt: Escapes, Blockskalar, Liste", () => {
+		const werte = {
+			Inhalte: 'Pfad C:\\temp und "Zitat"',
+			Stundenziel: "Die SuS können\n---\n- rechnen",
+			Kategorien: ["[[UStunden]]"],
+			Leer: null,
+		};
+		const { frontmatter } = splitNote(`${renderFrontmatter(werte)}\nRumpf\n`);
+		expect(readFelder(frontmatter)).toEqual({ ...werte, Leer: "" });
+	});
+
+	it("setzt einzelne Felder und lässt alles andere stehen", () => {
+		const inhalt = "---\nInhalte:   von Hand  \nuplan_hash: alt\n---\nRumpf\n";
+		const neu = setzeFelder(inhalt, { uplan_hash: "neu", UStand: "Skizze" });
+		expect(neu).toBe("---\nInhalte:   von Hand  \nuplan_hash: neu\nUStand: Skizze\n---\nRumpf\n");
 	});
 });

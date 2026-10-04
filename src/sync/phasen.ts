@@ -1,0 +1,443 @@
+import type { LessonLinkedItem, LessonPhaseItem } from "../api/types";
+import { stableStringify } from "./hash";
+
+/**
+ * Die Phasenliste einer Stunde — gelesen aus `## Ablauf`, geschrieben dorthin und gemischt
+ * mit dem Stand der Plattform (Notizformat-Plan, Entscheidung 4). Rein: kein Vault, kein
+ * Netz, keine Uhr.
+ *
+ * Zwei Darstellungen, ein Parser. Gerendert wird nach einer Regel ohne Gedächtnis: Trägt
+ * eine Phase mehr als Name und Dauer, wird eine Tabelle geschrieben, sonst eine Liste.
+ */
+
+export const ABLAUF_UEBERSCHRIFT = "## Ablauf";
+
+/** Freitext oder Verweis auf einen Baustein. */
+export type Verweis = LessonLinkedItem;
+
+/** Die Schemafelder einer Phase — genau das, was zurückgeschickt wird. */
+export type PhaseNutzlast = LessonPhaseItem;
+
+/**
+ * Eine Phase, wie die Plattform sie hält. `status` wird nur gelesen — eine gestrichene
+ * Phase erscheint durchgestrichen. Zurückgeschickt wird er nie: Den übernimmt die
+ * Plattform selbst aus dem gespeicherten Stand (0.13, P2).
+ */
+export interface Phase extends PhaseNutzlast {
+	status: string | null;
+}
+
+/**
+ * Was eine Darstellung im Vault über eine Phase aussagt. Fehlt ein Feld, sagt sie nichts
+ * darüber — eine Tabelle ohne Prio-Spalte lässt die Prio stehen, eine Liste das Material.
+ */
+export interface VaultPhase {
+	name: string;
+	dauer_min?: number | null;
+	beschreibung?: string | null;
+	prio?: string;
+	sozialform?: string | null;
+	methode?: string | null;
+	material?: string[];
+}
+
+export interface Ablauf {
+	phasen: VaultPhase[];
+	/** Was die Plattform ablehnen würde. Steht hier etwas, wird die Stunde nicht geschrieben. */
+	fehler: string[];
+}
+
+const PRIO_LABEL: Record<string, string> = { kern: "Kern", uebung: "Übung", vertiefung: "Vertiefung" };
+const PRIO_AUS_LABEL: Record<string, string> = {
+	kern: "kern",
+	übung: "uebung",
+	uebung: "uebung",
+	vertiefung: "vertiefung",
+};
+
+/** Grenzen aus `LessonPhaseItem` — was darüber liegt, lehnt die Plattform mit 422 ab. */
+const NAME_MAX = 200;
+const DAUER_MIN = 1;
+const DAUER_MAX = 480;
+
+// ── Plattformstand lesen ─────────────────────────────────────────────────────
+
+function istObjekt(x: unknown): x is Record<string, unknown> {
+	return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+function text(x: unknown): string | null {
+	return typeof x === "string" ? x : null;
+}
+
+/** Ein Verweis immer mit allen vier Schlüsseln — sonst wäre `{wert}` ungleich `{wert, node_id: null}`. */
+function verweis(x: unknown): Verweis | null {
+	if (!istObjekt(x)) return null;
+	return {
+		typ: text(x["typ"]) ?? "text",
+		wert: text(x["wert"]),
+		node_id: text(x["node_id"]),
+		titel: text(x["titel"]),
+	};
+}
+
+/**
+ * Die Phasen aus den Metadaten eines Stundenknotens. `null` und ein fehlender Schlüssel
+ * heißen dasselbe — so speichert die Plattform eine Phase ohne Dauer (0.13, P1).
+ */
+export function normalisierePhasen(roh: unknown): Phase[] {
+	if (!Array.isArray(roh)) return [];
+	return roh.filter(istObjekt).map((p) => ({
+		id: text(p["id"]) || null,
+		name: text(p["name"]) ?? "",
+		dauer_min: typeof p["dauer_min"] === "number" ? p["dauer_min"] : null,
+		beschreibung: text(p["beschreibung"]),
+		prio: text(p["prio"]) || "kern",
+		sozialform: verweis(p["sozialform"]),
+		methode: verweis(p["methode"]),
+		material: Array.isArray(p["material"])
+			? p["material"].map(verweis).filter((v): v is Verweis => v !== null)
+			: [],
+		status: text(p["status"]),
+	}));
+}
+
+/** Was von einem Verweis im Vault steht: der Titel eines Bausteins, sonst der Freitext. */
+export function anzeige(v: Verweis | null): string {
+	return (v?.titel ?? v?.wert ?? "").trim();
+}
+
+export function nutzlast(p: Phase): PhaseNutzlast {
+	return {
+		id: p.id,
+		name: p.name,
+		dauer_min: p.dauer_min,
+		beschreibung: p.beschreibung,
+		prio: p.prio,
+		sozialform: p.sozialform,
+		methode: p.methode,
+		material: p.material,
+	};
+}
+
+// ── Rendern ──────────────────────────────────────────────────────────────────
+
+/** Die Umschaltregel: Trägt irgendeine Phase mehr als Name und Dauer, wird es eine Tabelle. */
+export function brauchtTabelle(phasen: Phase[]): boolean {
+	return phasen.some(
+		(p) =>
+			(p.beschreibung ?? "").trim() !== "" ||
+			anzeige(p.sozialform) !== "" ||
+			anzeige(p.methode) !== "" ||
+			p.material.some((m) => anzeige(m) !== "") ||
+			p.prio !== "kern",
+	);
+}
+
+function phasenName(p: Phase): string {
+	return p.status === "gestrichen" ? `~~${p.name}~~` : p.name;
+}
+
+function zelle(wert: string): string {
+	return wert.replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+}
+
+/** Die Zeilen unter `## Ablauf`. Ohne Phasen ein leerer Listenpunkt — der Platz für die Skizze. */
+export function rendereAblauf(phasen: Phase[]): string[] {
+	if (phasen.length === 0) return ["1."];
+	if (!brauchtTabelle(phasen)) {
+		return phasen.map(
+			(p, i) => `${i + 1}. ${phasenName(p)}${p.dauer_min !== null ? ` (${p.dauer_min} min)` : ""}`,
+		);
+	}
+	const zeilen = [
+		"| Prio | Min | Phase | Inhalt | Sozialform | Methode | Material |",
+		"| --- | --- | --- | --- | --- | --- | --- |",
+	];
+	for (const p of phasen) {
+		const zellen = [
+			PRIO_LABEL[p.prio] ?? p.prio,
+			p.dauer_min !== null ? String(p.dauer_min) : "",
+			phasenName(p),
+			p.beschreibung ?? "",
+			anzeige(p.sozialform),
+			anzeige(p.methode),
+			p.material.map(anzeige).filter(Boolean).join(", "),
+		];
+		zeilen.push(`| ${zellen.map(zelle).join(" | ")} |`);
+	}
+	return zeilen;
+}
+
+// ── Lesen ────────────────────────────────────────────────────────────────────
+
+/**
+ * Der Abschnitt `## Ablauf` — bis zur nächsten Überschrift erster oder zweiter Ebene oder
+ * zum Marker. `null`, wenn es ihn nicht gibt: Dann sagt die Notiz nichts über die Phasen.
+ */
+export function ablaufAbschnitt(text: string): { start: number; ende: number; zeilen: string[] } | null {
+	const zeilen = text.split("\n");
+	const start = zeilen.findIndex((z) => z.trim() === ABLAUF_UEBERSCHRIFT);
+	if (start === -1) return null;
+	let ende = start + 1;
+	while (ende < zeilen.length && !/^#{1,2} /.test(zeilen[ende] as string) && !zeilen[ende]?.startsWith("<!-- uplan:ende")) {
+		ende++;
+	}
+	return { start, ende, zeilen: zeilen.slice(start + 1, ende) };
+}
+
+export function leseAblauf(text: string): Ablauf | null {
+	const abschnitt = ablaufAbschnitt(text);
+	if (!abschnitt) return null;
+	const inhalt = abschnitt.zeilen.filter((z) => z.trim() !== "");
+	if (inhalt[0]?.trim().startsWith("|")) return leseTabelle(inhalt);
+	return leseListe(abschnitt.zeilen);
+}
+
+function ohneStreichung(name: string): string {
+	const t = name.trim();
+	return t.startsWith("~~") && t.endsWith("~~") && t.length > 4 ? t.slice(2, -2).trim() : t;
+}
+
+/** `10`, `10'`, `10′`, `10 min` → 10; leer → `null`; alles andere → `undefined` (unlesbar). */
+function leseDauer(wert: string): number | null | undefined {
+	const t = wert.trim();
+	if (t === "") return null;
+	const treffer = /^(\d+)\s*(?:min\.?|minuten|′|')?$/i.exec(t);
+	return treffer ? Number(treffer[1]) : undefined;
+}
+
+function pruefe(nr: number, p: VaultPhase, fehler: string[]): void {
+	if (p.name.length > NAME_MAX) fehler.push(`Phase ${nr}: Name länger als ${NAME_MAX} Zeichen`);
+	if (typeof p.dauer_min === "number" && (p.dauer_min < DAUER_MIN || p.dauer_min > DAUER_MAX)) {
+		fehler.push(`Phase ${nr}: Dauer ${p.dauer_min} liegt nicht zwischen ${DAUER_MIN} und ${DAUER_MAX}`);
+	}
+}
+
+type Spalte = "prio" | "dauer" | "name" | "beschreibung" | "sozialform" | "methode" | "material";
+
+/**
+ * Über die Kopfzeile, nicht über die Position — die handgeschriebenen Tabellen seit
+ * Schuljahresbeginn haben `Zeit | Phase | Inhalt | Methode | Medien`. `Zeit` ist dort die
+ * Dauer, nicht die Uhr.
+ */
+const SPALTEN: Record<string, Spalte> = {
+	prio: "prio",
+	min: "dauer",
+	minuten: "dauer",
+	dauer: "dauer",
+	zeit: "dauer",
+	phase: "name",
+	name: "name",
+	inhalt: "beschreibung",
+	beschreibung: "beschreibung",
+	sozialform: "sozialform",
+	methode: "methode",
+	material: "material",
+	medien: "material",
+};
+
+function zellenVon(zeile: string): string[] {
+	let s = zeile.trim();
+	if (s.startsWith("|")) s = s.slice(1);
+	if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+	const teile: string[] = [];
+	let aktuell = "";
+	for (let i = 0; i < s.length; i++) {
+		if (s[i] === "\\" && s[i + 1] === "|") {
+			aktuell += "|";
+			i++;
+		} else if (s[i] === "|") {
+			teile.push(aktuell.trim());
+			aktuell = "";
+		} else {
+			aktuell += s[i];
+		}
+	}
+	teile.push(aktuell.trim());
+	return teile;
+}
+
+function leseTabelle(zeilen: string[]): Ablauf {
+	const fehler: string[] = [];
+	const kopf = zellenVon(zeilen[0] as string).map(
+		(k) => SPALTEN[k.toLowerCase().replace(/[^a-zäöüß]/g, "")] ?? null,
+	);
+	if (!kopf.includes("name")) {
+		return { phasen: [], fehler: ["Tabelle unter „## Ablauf“ hat keine Spalte „Phase“"] };
+	}
+
+	const phasen: VaultPhase[] = [];
+	let vorige = "";
+	for (const zeile of zeilen.slice(1)) {
+		const zellen = zellenVon(zeile);
+		if (zellen.every((z) => /^:?-+:?$/.test(z))) continue; // Trennzeile
+		if (zellen.every((z) => z === "")) continue;
+
+		const p: VaultPhase = { name: "" };
+		kopf.forEach((spalte, i) => {
+			const wert = zellen[i] ?? "";
+			switch (spalte) {
+				case "name":
+					p.name = ohneStreichung(wert);
+					break;
+				case "dauer": {
+					const dauer = leseDauer(wert);
+					if (dauer === undefined) fehler.push(`Phase ${phasen.length + 1}: Dauer „${wert}“ nicht lesbar`);
+					p.dauer_min = dauer ?? null;
+					break;
+				}
+				case "prio": {
+					const prio = wert === "" ? "kern" : PRIO_AUS_LABEL[wert.toLowerCase()];
+					if (!prio) fehler.push(`Phase ${phasen.length + 1}: Prio „${wert}“ unbekannt`);
+					p.prio = prio ?? "kern";
+					break;
+				}
+				case "beschreibung":
+					p.beschreibung = wert === "" ? null : wert.replace(/<br\s*\/?>/gi, "\n");
+					break;
+				case "sozialform":
+				case "methode":
+					p[spalte] = wert === "" ? null : wert;
+					break;
+				case "material":
+					// Komma wie im Plattform-Editor, <br> wie in den handgeschriebenen Tabellen.
+					p.material = wert.split(/\s*(?:,|<br\s*\/?>)\s*/i).filter(Boolean);
+					break;
+			}
+		});
+		// Leere Phase-Zelle: Fortsetzung der Phase darüber, wie im Bestand üblich.
+		if (p.name === "") p.name = vorige;
+		if (p.name === "") {
+			fehler.push(`Phase ${phasen.length + 1}: ohne Namen`);
+			continue;
+		}
+		vorige = p.name;
+		pruefe(phasen.length + 1, p, fehler);
+		phasen.push(p);
+	}
+	return { phasen, fehler };
+}
+
+const PUNKT = /^\s{0,1}(?:\d+[.)]|[-*+])(?:\s+(.*))?$/;
+const KLAMMER_AM_ENDE = /^(.*?)\s*\(([^()]*)\)\s*$/;
+const BEGINNT_MIT_DAUER = /^\s*\d+\s*(?:min\.?|minuten|′|')/i;
+
+/**
+ * Die schnelle Skizze: `1. Sicherung (10 min · Plenum · Unterrichtsgespräch)`, darunter
+ * eingerückt die Beschreibung. Eine Klammer am Ende zählt nur als Angaben, wenn sie mit
+ * einer Dauer beginnt oder ein `·` enthält — „Erarbeitung (Aufg. 1+2)" bleibt ein Name.
+ */
+function leseListe(zeilen: string[]): Ablauf {
+	const fehler: string[] = [];
+	const phasen: VaultPhase[] = [];
+	let aktuell: { phase: VaultPhase; beschreibung: string[] } | null = null;
+
+	const abschliessen = () => {
+		if (!aktuell) return;
+		if (aktuell.beschreibung.length > 0) aktuell.phase.beschreibung = aktuell.beschreibung.join("\n");
+		pruefe(phasen.length + 1, aktuell.phase, fehler);
+		phasen.push(aktuell.phase);
+		aktuell = null;
+	};
+
+	for (const zeile of zeilen) {
+		const punkt = PUNKT.exec(zeile);
+		if (punkt) {
+			abschliessen();
+			const inhalt = (punkt[1] ?? "").trim();
+			if (inhalt === "") continue; // leerer Punkt: der Platzhalter, keine Phase
+			aktuell = { phase: leseListenpunkt(inhalt, phasen.length + 1, fehler), beschreibung: [] };
+		} else if (aktuell && zeile.trim() !== "") {
+			aktuell.beschreibung.push(zeile.trim());
+		}
+	}
+	abschliessen();
+	return { phasen, fehler };
+}
+
+function leseListenpunkt(inhalt: string, nr: number, fehler: string[]): VaultPhase {
+	const klammer = KLAMMER_AM_ENDE.exec(inhalt);
+	const innen = klammer?.[2] ?? "";
+	if (!klammer || !(BEGINNT_MIT_DAUER.test(innen) || innen.includes("·"))) {
+		return { name: ohneStreichung(inhalt), dauer_min: null };
+	}
+	const angaben = innen.split(/\s*[·,]\s*/).filter(Boolean);
+	const phase: VaultPhase = { name: ohneStreichung(klammer[1] as string), dauer_min: null };
+	if (angaben[0] !== undefined && BEGINNT_MIT_DAUER.test(angaben[0])) {
+		const dauer = leseDauer(angaben.shift() as string);
+		if (dauer === undefined) fehler.push(`Phase ${nr}: Dauer nicht lesbar`);
+		phase.dauer_min = dauer ?? null;
+	}
+	if (angaben[0] !== undefined) phase.sozialform = angaben.shift() as string;
+	if (angaben.length > 0) phase.methode = angaben.join(", ");
+	return phase;
+}
+
+// ── Mischen ──────────────────────────────────────────────────────────────────
+
+function gleicherName(a: string, b: string): boolean {
+	return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * Welche Vault-Zeile welche Plattform-Phase ist: erst gleicher Name, dann die Position unter
+ * den übrigen. Was übrig bleibt, ist neu. Zugeordnet wird gegen den aktuellen Plattformstand —
+ * zurückgeschrieben wird nur, wenn der sich seit dem letzten Lauf nicht geändert hat, er ist
+ * also genau die Basis, aus der die Notiz gerendert wurde.
+ */
+export function ordnePhasenZu(server: Phase[], vault: VaultPhase[]): (Phase | undefined)[] {
+	const frei = new Set(server.map((_, i) => i));
+	const zuordnung: (number | undefined)[] = vault.map((v) => {
+		const j = server.findIndex((s, i) => frei.has(i) && gleicherName(s.name, v.name));
+		if (j === -1) return undefined;
+		frei.delete(j);
+		return j;
+	});
+	const uebrig = [...frei].sort((a, b) => a - b);
+	let k = 0;
+	for (let i = 0; i < zuordnung.length && k < uebrig.length; i++) {
+		if (zuordnung[i] === undefined) zuordnung[i] = uebrig[k++];
+	}
+	return zuordnung.map((j) => (j === undefined ? undefined : server[j]));
+}
+
+/** Freitext — es sei denn, er lautet wie ein bisheriger Eintrag; dann bleibt dessen Verweis. */
+function alsVerweis(textWert: string | null, bisher: Verweis[]): Verweis | null {
+	const t = (textWert ?? "").trim();
+	if (t === "") return null;
+	return bisher.find((b) => anzeige(b) === t) ?? { typ: "text", wert: t, node_id: null, titel: null };
+}
+
+/**
+ * Die Mischregel: Die Phasenliste wird nicht neu gebaut. Auf jede Phase kommen nur die
+ * Felder, die die Darstellung im Vault ausdrückt; alles andere bleibt, wie es auf der
+ * Plattform steht. Eine Zeile, die fehlt, ist eine gelöschte Phase — das ist gewollt.
+ */
+export function mischePhasen(server: Phase[], vault: VaultPhase[]): PhaseNutzlast[] {
+	const basis = ordnePhasenZu(server, vault);
+	return vault.map((v, i) => {
+		const alt = basis[i];
+		const p: PhaseNutzlast = alt
+			? nutzlast(alt)
+			: { id: null, name: v.name, dauer_min: null, beschreibung: null, prio: "kern", sozialform: null, methode: null, material: [] };
+		p.name = v.name;
+		if (v.dauer_min !== undefined) p.dauer_min = v.dauer_min;
+		if (v.beschreibung !== undefined) p.beschreibung = v.beschreibung;
+		if (v.prio !== undefined) p.prio = v.prio;
+		if (v.sozialform !== undefined) p.sozialform = alsVerweis(v.sozialform, alt?.sozialform ? [alt.sozialform] : []);
+		if (v.methode !== undefined) p.methode = alsVerweis(v.methode, alt?.methode ? [alt.methode] : []);
+		if (v.material !== undefined) {
+			p.material = v.material
+				.map((m) => alsVerweis(m, alt?.material ?? []))
+				.filter((m): m is Verweis => m !== null);
+		}
+		return p;
+	});
+}
+
+/** Gleich in den Schemafeldern — der Status einer Plattform-Phase zählt nicht mit. */
+export function gleichePhasen(a: PhaseNutzlast[], b: PhaseNutzlast[]): boolean {
+	const schema = (p: PhaseNutzlast) => nutzlast({ ...p, status: null });
+	return stableStringify(a.map(schema)) === stableStringify(b.map(schema));
+}
