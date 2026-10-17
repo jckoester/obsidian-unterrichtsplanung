@@ -6,6 +6,7 @@ import {
 	neueGruppen,
 	ordnerPfad,
 	pruefeOrdnername,
+	uebernimmPlattformFach,
 	vorschlagOrdnername,
 	zuordnungFuer,
 	type GruppenEinstellung,
@@ -25,6 +26,8 @@ function eingerichtet(groupId: number, ordnerName: string): GruppenEinstellung {
 		fach: "",
 		stufe: null,
 		stundenOrdner: "Unterrichtsstunden",
+		fachId: null,
+		fachSlug: null,
 	};
 }
 
@@ -57,7 +60,7 @@ describe("Gruppen holen", () => {
 		expect(neu.map((g) => g.id)).toEqual([2, 4]);
 	});
 
-	it("belegt Fach, Stufe und Unterordner vor", () => {
+	it("belegt Fach, Stufe und Unterordner vor und merkt sich das Fach der Plattform", () => {
 		const [vorschlag] = gruppenVorschlaege([nach("nwt-tl-9abcd")], [], [], []);
 		expect(vorschlag).toEqual({
 			groupId: 1,
@@ -67,6 +70,8 @@ describe("Gruppen holen", () => {
 			fach: "NwT",
 			stufe: 9,
 			stundenOrdner: "Unterrichtsstunden",
+			fachId: 16,
+			fachSlug: "nwt",
 		});
 	});
 
@@ -77,6 +82,23 @@ describe("Gruppen holen", () => {
 
 		const schonDa = gruppenVorschlaege([nach("nwt-tl-9abcd")], [eingerichtet(7, "nwt 9")], [], []);
 		expect(schonDa[0]?.ordnerName).toBe("NwT 9 (nwt-tl-9abcd)");
+	});
+});
+
+describe("Fach der Plattform nachziehen", () => {
+	it("trägt es an eingerichteten Gruppen nach, ohne die eigenen Felder anzufassen", () => {
+		const gruppe = { ...eingerichtet(2, "M 9c"), fach: "Mathe" };
+		const liste = [gruppe];
+		uebernimmPlattformFach(liste, plattform);
+		// Dasselbe Objekt: Die Einstellungsseite kann es gerade zeigen.
+		expect(liste[0]).toBe(gruppe);
+		expect(gruppe).toMatchObject({ fach: "Mathe", fachId: 2, fachSlug: "mathematik" });
+	});
+
+	it("lässt eine Gruppe stehen, die die Plattform nicht mehr nennt", () => {
+		const gruppe = { ...eingerichtet(99, "Alt"), fachId: 6, fachSlug: "chemie" };
+		uebernimmPlattformFach([gruppe], plattform);
+		expect(gruppe).toMatchObject({ fachId: 6, fachSlug: "chemie" });
 	});
 });
 
@@ -120,6 +142,11 @@ describe("Einstellungen laden", () => {
 		expect(geladen).not.toHaveProperty("zuordnungen");
 		expect(geladen.basisUrl).toBe("http://localhost/api");
 		expect(geladen.gruppen).toEqual([]);
+	});
+
+	it("ergänzt an Gruppen von vor dem Plattformfach leere Felder", () => {
+		const { fachId: _id, fachSlug: _slug, ...alt } = eingerichtet(31, "NwT 9");
+		expect(ladeEinstellungen({ gruppen: [alt] }).gruppen[0]).toEqual(eingerichtet(31, "NwT 9"));
 	});
 
 	it("teilt seine Listen nicht mit den Vorgaben", () => {

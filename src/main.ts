@@ -5,7 +5,7 @@ import { SyncErgebnisModal } from "./dryrun-modal";
 import { registriereKopf } from "./kopf-ansicht";
 import { oeffnePhasenEditor, registrierePhasenknopf, type Bearbeite, type Ziel } from "./phasen-editor";
 import { registriereZeitleiste } from "./zeitleiste-ansicht";
-import { neueGruppen, zuordnungFuer } from "./gruppen";
+import { neueGruppen, uebernimmPlattformFach, zuordnungFuer } from "./gruppen";
 import { ladeEinstellungen, type UpsSettings } from "./settings";
 import { UpsSettingTab } from "./settings-tab";
 import { ObsidianVaultAdapter } from "./sync/obsidian-vault";
@@ -122,7 +122,7 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 			}
 		}
 
-		await this.meldeNeueGruppen();
+		await this.gleicheGruppenAb();
 
 		const zeit = new Date().toLocaleString("de-DE");
 		this.settings.letzterSync = zeit;
@@ -160,18 +160,19 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 	}
 
 	/**
-	 * Neue Unterrichtsgruppen auf der Plattform nur melden, nicht einrichten: Ein Sync, der
-	 * still Einstellungen ändert, legte Notizen unter einem Ordnernamen an, den noch niemand
-	 * geprüft hat. Scheitert die Abfrage (etwa eine Plattform vor 0.13.1), bleibt es still —
-	 * der Hinweis ist eine Gefälligkeit, kein Teil des Syncs.
+	 * Die eingerichteten Gruppen mit der Plattform abgleichen: ihr Fach nachziehen (gespeichert
+	 * wird danach ohnehin) und neue Unterrichtsgruppen melden.
+	 *
+	 * Neue Gruppen nur melden, nicht einrichten: Ein Sync, der still Einstellungen ändert, legte
+	 * Notizen unter einem Ordnernamen an, den noch niemand geprüft hat. Scheitert die Abfrage
+	 * (etwa eine Plattform vor 0.13.1), bleibt es still — beides ist eine Gefälligkeit, kein
+	 * Teil des Syncs.
 	 */
-	private async meldeNeueGruppen(): Promise<void> {
+	private async gleicheGruppenAb(): Promise<void> {
 		try {
-			const neu = neueGruppen(
-				await this.api.planungsgruppen(),
-				this.settings.gruppen,
-				this.settings.ausgeblendet,
-			);
+			const plattform = await this.api.planungsgruppen();
+			uebernimmPlattformFach(this.settings.gruppen, plattform);
+			const neu = neueGruppen(plattform, this.settings.gruppen, this.settings.ausgeblendet);
 			if (neu.length === 0) return;
 			new Notice(
 				`${neu.length === 1 ? "Eine neue Unterrichtsgruppe" : `${neu.length} neue Unterrichtsgruppen`} auf der Plattform: ` +
@@ -179,7 +180,7 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 				10000,
 			);
 		} catch (error) {
-			console.info("[UPS] Neue Gruppen nicht abgefragt:", error);
+			console.info("[UPS] Gruppen nicht abgeglichen:", error);
 		}
 	}
 

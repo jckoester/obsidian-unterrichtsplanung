@@ -20,6 +20,14 @@ export interface GruppenEinstellung {
 	stufe: number | null;
 	/** Unterordner für Stundennotizen, relativ zum Ordner der Gruppe. */
 	stundenOrdner: string;
+	/**
+	 * Das Fach auf der Plattform. Anders als `fach` nicht einstellbar, sondern bei jedem Sync
+	 * nachgezogen (`uebernimmPlattformFach`). Die ID braucht der Chat des Stundenassistenten,
+	 * der Slug die Adresse der Entwurfsansicht. `null`, solange die Plattform kein Fach nennt
+	 * oder die Gruppe noch nie abgeglichen wurde.
+	 */
+	fachId: number | null;
+	fachSlug: string | null;
 }
 
 /**
@@ -107,8 +115,27 @@ export function gruppenVorschlaege(
 			fach: g.fach?.name ?? "",
 			stufe: g.jahrgang,
 			stundenOrdner: "Unterrichtsstunden",
+			fachId: g.fach?.id ?? null,
+			fachSlug: g.fach?.slug ?? null,
 		};
 	});
+}
+
+/**
+ * Trägt Fach-ID und -Slug der Plattform an den eingerichteten Gruppen nach. Gruppen, die vor
+ * diesen Feldern eingerichtet wurden, haben sie nicht, und „Gruppen holen" kommt für sie nie
+ * wieder. Eine Gruppe, die die Plattform nicht
+ * mehr nennt, behält, was sie hat.
+ *
+ * Geändert wird an Ort und Stelle: Die Einstellungsseite kann dieselben Objekte gerade zeigen.
+ */
+export function uebernimmPlattformFach(eingerichtet: GruppenEinstellung[], plattform: Planungsgruppe[]): void {
+	for (const gruppe of eingerichtet) {
+		const treffer = plattform.find((g) => g.id === gruppe.groupId);
+		if (!treffer) continue;
+		gruppe.fachId = treffer.fach?.id ?? null;
+		gruppe.fachSlug = treffer.fach?.slug ?? null;
+	}
 }
 
 /**

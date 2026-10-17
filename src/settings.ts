@@ -46,9 +46,15 @@ export const STANDARD_EINSTELLUNGEN: UpsSettings = {
  * `data.json` mitzureisen.
  */
 export function ladeEinstellungen(gespeichert: unknown): UpsSettings {
-	const { zuordnungen: _alt, ...rest } = (gespeichert ?? {}) as Partial<UpsSettings> & {
+	const { zuordnungen: _alt, gruppen, ...rest } = (gespeichert ?? {}) as Partial<UpsSettings> & {
 		zuordnungen?: unknown;
 	};
 	// Eigene Listen statt der aus den Vorgaben: Sonst änderte das erste `push` die Vorgaben mit.
-	return { ...STANDARD_EINSTELLUNGEN, gruppen: [], ausgeblendet: [], ...rest };
+	return {
+		...STANDARD_EINSTELLUNGEN,
+		ausgeblendet: [],
+		...rest,
+		// Eingerichtet vor dem Plattformfach (bis 16.10.2026): Der nächste Sync trägt es nach.
+		gruppen: (gruppen ?? []).map((g) => ({ ...g, fachId: g.fachId ?? null, fachSlug: g.fachSlug ?? null })),
+	};
 }
