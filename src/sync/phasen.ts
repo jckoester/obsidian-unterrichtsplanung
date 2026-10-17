@@ -733,3 +733,23 @@ export function gleichePhasen(a: PhaseNutzlast[], b: PhaseNutzlast[]): boolean {
 	const schema = (p: PhaseNutzlast) => nutzlast({ ...p, status: null });
 	return stableStringify(a.map(schema)) === stableStringify(b.map(schema));
 }
+
+/**
+ * Die Stati der Nachbereitung — `NACHBEREITUNG_STATI` in `review_service.py`. `geplant`
+ * gehört nicht dazu: So heißt eine aus der Vorstunde übertragene Phase, und sie zu
+ * streichen ist Planung.
+ */
+const NACHBEREITET = new Set(["erledigt", "offen", "gestrichen"]);
+
+/**
+ * Nachbereitete Phasen der Plattform, deren Kennung in der Nutzlast fehlt — das Schreiben
+ * löschte sie samt Status. Reflow, Übertrag und Kompetenzverlauf hängen an diesem Status, und
+ * er reist nur über die Kennung. Für den Stundenassistenten weist die Plattform so einen
+ * Aufruf seit 0.15 ab (`_nachbereitete_fehlen`); entfernen lässt sich eine nachbereitete
+ * Phase nur in der Entwurfsansicht. Dieselbe Regel hier, sonst wäre der Vault der eine Weg,
+ * auf dem das noch still passiert.
+ */
+export function fehlendeNachbereitete(server: Phase[], neu: PhaseNutzlast[]): Phase[] {
+	const kennungen = new Set(neu.map((p) => p.id).filter((id) => id));
+	return server.filter((p) => p.status !== null && NACHBEREITET.has(p.status) && !(p.id && kennungen.has(p.id)));
+}

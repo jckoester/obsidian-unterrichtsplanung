@@ -15,6 +15,7 @@ import {
 } from "./frontmatter";
 import {
 	ablaufAbschnitt,
+	fehlendeNachbereitete,
 	gleichePhasen,
 	leseAblauf,
 	mischePhasen,
@@ -805,6 +806,15 @@ function planeRueckschreiben(
 		if (slot.stunde_node_id && !stunde) return zurueckgehalten(pfad, "Entwurf auf der Plattform nicht lesbar");
 		if (ablauf && ablauf.fehler.length > 0) return zurueckgehalten(pfad, ablauf.fehler.join("; "));
 		if (stunde?.darf_schreiben === false) return zurueckgehalten(pfad, "Entwurf ist auf der Plattform nur lesbar");
+	}
+	const fehlend = phasenNeu && phasen ? fehlendeNachbereitete(serverPhasen, phasen) : [];
+	if (fehlend.length > 0) {
+		const namen = fehlend.map((p) => `„${p.name}“ (${p.status})`).join(", ");
+		return zurueckgehalten(
+			pfad,
+			`${fehlend.length === 1 ? "Nachbereitete Phase fehlt" : "Nachbereitete Phasen fehlen"}: ${namen} — ` +
+				"entfernen lässt sich eine nachbereitete Phase nur in der Entwurfsansicht der Plattform",
+		);
 	}
 
 	const rueckkanal: Rueckkanal = { slotId: slot.id, knotenId: slot.stunde_node_id, vaultAblauf: ablauf?.phasen ?? null };

@@ -258,6 +258,52 @@ describe("Rückkanal — planen", () => {
 	});
 });
 
+describe("Rückkanal — nachbereitete Phasen", () => {
+	const NACHBEREITET = [
+		{ id: "p1", name: "Einstieg", dauer_min: 5, status: "erledigt" },
+		{ id: "p2", name: "Erarbeitung", dauer_min: 25, status: "geplant" },
+		{ id: "p3", name: "Sicherung", dauer_min: 10, status: "offen" },
+	];
+	const knoten = [knotenB(NACHBEREITET)];
+
+	it("hält zurück, was eine nachbereitete Phase löschen würde, und nennt sie", () => {
+		const vorhanden = alsVorhanden(lauf([], knoten));
+		bearbeite(vorhanden, ZWEITE, "\n3. Sicherung (10 min)", "");
+		const op = opFuer(lauf(vorhanden, knoten), ZWEITE);
+		expect(op?.art).toBe("zurueckgehalten");
+		expect(op?.grund).toBe(
+			"Nachbereitete Phase fehlt: „Sicherung“ (offen) — entfernen lässt sich eine nachbereitete Phase nur in der Entwurfsansicht der Plattform",
+		);
+	});
+
+	it("hält auch zurück, wenn dabei anderes mitginge — die Stunde wird nur ganz geschrieben", () => {
+		const vorhanden = alsVorhanden(lauf([], knoten));
+		bearbeite(vorhanden, ZWEITE, "1. Einstieg (5 min)\n", "");
+		bearbeite(vorhanden, ZWEITE, "Stundenziel: Übersetzungen berechnen", "Stundenziel: Übersetzungen sicher berechnen");
+		expect(opFuer(lauf(vorhanden, knoten), ZWEITE)?.art).toBe("zurueckgehalten");
+	});
+
+	it("schreibt das Löschen einer übertragenen Phase — sie zu streichen ist Planung", () => {
+		const vorhanden = alsVorhanden(lauf([], knoten));
+		bearbeite(vorhanden, ZWEITE, "\n2. Erarbeitung (25 min)", "");
+		const op = opFuer(lauf(vorhanden, knoten), ZWEITE);
+		expect(op?.art).toBe("zurueckschreiben");
+		expect(op?.rueckkanal?.stunde?.phasen?.map((p) => p.id)).toEqual(["p1", "p3"]);
+	});
+
+	it("schreibt eine umbenannte nachbereitete Phase — sie behält ihre Kennung", () => {
+		const vorhanden = alsVorhanden(lauf([], knoten));
+		bearbeite(vorhanden, ZWEITE, "1. Einstieg (5 min)", "1. Begrüßung (5 min)");
+		const op = opFuer(lauf(vorhanden, knoten), ZWEITE);
+		expect(op?.art).toBe("zurueckschreiben");
+		expect(op?.rueckkanal?.stunde?.phasen?.map((p) => [p.id, p.name])).toEqual([
+			["p1", "Begrüßung"],
+			["p2", "Erarbeitung"],
+			["p3", "Sicherung"],
+		]);
+	});
+});
+
 describe("Rückkanal — nach dem Schreiben", () => {
 	/** Was die Plattform aus der Nutzlast macht: speichern, neuen Phasen Kennungen geben. */
 	function gespeichert(phasen: unknown[] | undefined, extra: Partial<Stundenknoten> = {}): Stundenknoten {
