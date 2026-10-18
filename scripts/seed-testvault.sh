@@ -38,6 +38,23 @@ cp -Rf "$QUELLE/System/Templates/Unterricht/." "$ZIEL/System/Templates/Unterrich
 cp -f "$QUELLE/Bereiche/11 Unterricht/Unterricht-Cockpit.md" "$ZIEL/Bereiche/11 Unterricht/" 2>/dev/null || true
 cp -Rf "$QUELLE/Bereiche/11 Unterricht/$LEHRAUFTRAG" "$ZIEL/Bereiche/11 Unterricht/" 2>/dev/null || true
 
+# Die Eigenschaften blendet der PKM-Vault per Snippet aus (beim Überfahren sichtbar); ohne
+# es sähe eine Stundennotiz im Testvault anders aus als im Alltag. Nur dieses eine Snippet —
+# die Gestaltung des Plugins steht in seinem `styles.css`.
+mkdir -p "$ZIEL/.obsidian/snippets"
+cp -f "$QUELLE/.obsidian/snippets/properties.css" "$ZIEL/.obsidian/snippets/" 2>/dev/null || true
+python3 - "$ZIEL" <<'PY'
+import json, pathlib, sys
+pfad = pathlib.Path(sys.argv[1]) / ".obsidian" / "appearance.json"
+daten = json.loads(pfad.read_text()) if pfad.exists() else {}
+# `uplan` war das Snippet des Kopfs vor dem 04.10.2026 — veraltet, es störte mit `pointer-events`.
+an = [s for s in daten.get("enabledCssSnippets", []) if s != "uplan"]
+daten["enabledCssSnippets"] = an + ([] if "properties" in an else ["properties"])
+pfad.write_text(json.dumps(daten, indent=2) + "\n")
+print(f"Snippets: {daten['enabledCssSnippets']}")
+PY
+rm -f "$ZIEL/.obsidian/snippets/uplan.css"
+
 # Die zweite Schicht: Bases und Template im Entwicklungsstand. Danach, damit sie gewinnt.
 cp -Rf "$REPO/vault/." "$ZIEL/"
 
