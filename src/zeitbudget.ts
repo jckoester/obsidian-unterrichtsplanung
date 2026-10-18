@@ -3,10 +3,12 @@
  * unter `## Ablauf` (Plan-Ablauf-Editor, B3).
  *
  * Gerechnet wird wie im Stundeneditor der Plattform (`PhaseTable.svelte`,
- * `lib/phasendauer.js`), damit beide Seiten dieselben Minuten zeigen: Jede Phase zählt mit
- * ihrer Dauer, gleich welcher Status oder welche Prio — auch eine gestrichene. Eine Phase
+ * `lib/phasendauer.js`): Jede Phase zählt mit ihrer Dauer, gleich welche Prio. Eine Phase
  * ohne Dauer zählt null Minuten, hält aber die Uhr an: Für sie und alle folgenden lässt sich
  * kein Ende mehr angeben.
+ *
+ * ⚠️ **Eine Ausnahme, bewusst** (Jan, 18.10.2026): Eine gestrichene Phase zählt nicht — sie
+ * findet nicht statt. Die Plattform zählt sie mit; die Minuten weichen dann voneinander ab.
  */
 
 import { plattformRegion, readFelder, splitNote } from "./sync/frontmatter";
@@ -17,6 +19,7 @@ export interface ZeitPhase {
 	name: string;
 	dauer_min?: number | null;
 	prio?: string;
+	gestrichen?: boolean;
 }
 
 export interface ZeitAbschnitt {
@@ -27,6 +30,8 @@ export interface ZeitAbschnitt {
 	beginn: number | null;
 	/** `0–10′`, `ab 20′` oder `–`, wie die Zeit-Spalte der Plattform. */
 	spanne: string;
+	/** Gestrichen: ohne Minuten, ohne Platz im Balken. */
+	gestrichen: boolean;
 }
 
 export interface Zeitbudget {
@@ -68,12 +73,17 @@ export function zeitbudget(phasen: ZeitPhase[], verfuegbar: number): Zeitbudget 
 	let ohneDauer = 0;
 	for (const phase of phasen) {
 		const dauer = phase.dauer_min ?? null;
+		if (phase.gestrichen) {
+			abschnitte.push({ name: phase.name, prio: phase.prio ?? null, dauer, beginn: null, spanne: "–", gestrichen: true });
+			continue;
+		}
 		abschnitte.push({
 			name: phase.name,
 			prio: phase.prio ?? null,
 			dauer,
 			beginn: uhr,
 			spanne: zeitspanne(uhr, dauer),
+			gestrichen: false,
 		});
 		if (dauer === null) ohneDauer++;
 		geplant += dauer ?? 0;
@@ -107,7 +117,8 @@ export function zeitleisteAus(inhalt: string): ZeitleisteDaten | null {
 	const ablauf = leseAblauf(body);
 	if (!ablauf) return null;
 	const minuten = verfuegbareMinuten(readFelder(frontmatter)["UStunden"]);
-	return { budget: zeitbudget(ablauf.phasen, minuten), fehler: ablauf.fehler };
+	const phasen = ablauf.phasen.map((p, i) => ({ ...p, gestrichen: ablauf.stellen[i]?.gestrichen ?? false }));
+	return { budget: zeitbudget(phasen, minuten), fehler: ablauf.fehler };
 }
 
 /**
@@ -131,16 +142,14 @@ export interface Balken {
 	ziel: number;
 }
 
-/** Die Abschnitte des Balkens: eine je Phase, dahinter der freie Rest. */
+/** Die Abschnitte des Balkens: eine je Phase, dahinter der freie Rest. Gestrichene fehlen. */
 export function balken(budget: Zeitbudget): Balken {
-	const breite = (a: ZeitAbschnitt) => a.dauer ?? ERSATZ_MINUTEN;
+	const breite = (a: ZeitAbschnitt) => (a.gestrichen ? 0 : (a.dauer ?? ERSATZ_MINUTEN));
 	const belegt = budget.abschnitte.reduce((summe, a) => summe + breite(a), 0);
 	const gesamt = Math.max(belegt, budget.verfuegbar, 1);
-	const teile: BalkenTeil[] = budget.abschnitte.map((a, nummer) => ({
-		art: "phase",
-		nummer,
-		anteil: (breite(a) / gesamt) * 100,
-	}));
+	const teile: BalkenTeil[] = budget.abschnitte.flatMap((a, nummer) =>
+		a.gestrichen ? [] : [{ art: "phase" as const, nummer, anteil: (breite(a) / gesamt) * 100 }],
+	);
 	if (belegt < gesamt) teile.push({ art: "frei", anteil: ((gesamt - belegt) / gesamt) * 100 });
 	return { teile, ziel: (budget.verfuegbar / gesamt) * 100 };
 }

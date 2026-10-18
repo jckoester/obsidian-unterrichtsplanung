@@ -54,6 +54,21 @@ describe("Zeitbudget", () => {
 		expect(budget.abschnitte.map((a) => a.prio)).toEqual(["vertiefung", null]);
 	});
 
+	// Anders als die Plattform (Jan, 18.10.2026): Eine gestrichene Phase findet nicht statt.
+	it("zählt eine gestrichene Phase nicht — keine Minuten, kein Platz im Balken, die Uhr läuft weiter", () => {
+		const budget = zeitbudget(
+			[
+				{ name: "Einstieg", dauer_min: 10 },
+				{ name: "Experiment", dauer_min: 20, gestrichen: true },
+				{ name: "Sicherung", dauer_min: 10 },
+			],
+			45,
+		);
+		expect(budget).toMatchObject({ geplant: 20, frei: 25, ohneDauer: 0 });
+		expect(budget.abschnitte.map((a) => a.spanne)).toEqual(["0–10′", "–", "10–20′"]);
+		expect(balken(budget).teile.map((t) => t.nummer)).toEqual([0, 2, undefined]);
+	});
+
 	it("kommt mit einem leeren Ablauf aus", () => {
 		expect(zeitbudget([], 90)).toMatchObject({ geplant: 0, frei: 90, ueberhang: 0, massstab: 90, abschnitte: [] });
 	});
@@ -129,6 +144,12 @@ describe("Zeitleiste aus der Notiz", () => {
 		"| Kern | 20 | Einstieg |  |  |  |  | `✎` |",
 		"| Übung | 40 | Erarbeitung |  |  |  |  | `✎` |",
 	];
+
+	it("erkennt eine gestrichene Phase am durchgestrichenen Namen", () => {
+		const daten = zeitleisteAus(notiz([...TABELLE, "| Kern | 15 | ~~Ausblick~~ |  |  |  |  | `✎` |"]));
+		expect(daten?.budget).toMatchObject({ geplant: 60, frei: 30 });
+		expect(daten?.budget.abschnitte.map((a) => a.gestrichen)).toEqual([false, false, true]);
+	});
 
 	it("liest Ablauf und UStunden aus der Plattform-Region, nicht aus dem eigenen Teil", () => {
 		const daten = zeitleisteAus(notiz(TABELLE));

@@ -166,6 +166,14 @@ describe("Ablauf — Liste lesen", () => {
 		expect(leseAblauf(ablauf(["1. Erarbeitung (Aufg. 1+2)"]))?.phasen[0]?.name).toBe("Erarbeitung (Aufg. 1+2)");
 	});
 
+	// Anders als unter einer Tabelle: Eine Liste hat kein klares Ende, und ein Absatz unter dem
+	// letzten Punkt gehört zu ihm — so ist es gewollt (Jan, 18.10.2026).
+	it("liest einen Absatz unter dem letzten Punkt als dessen Inhalt, auch nach einer Leerzeile", () => {
+		for (const zeilen of [["1. Einstieg", "2. Sicherung", "Material liegt im Schrank."], ["1. Einstieg", "2. Sicherung", "", "Material liegt im Schrank."]]) {
+			expect(leseAblauf(ablauf(zeilen))?.phasen[1]?.beschreibung).toBe("Material liegt im Schrank.");
+		}
+	});
+
 	it("nimmt auch Spiegelstriche", () => {
 		expect(leseAblauf(ablauf(["- Einstieg", "- Sicherung (5 min)"]))?.phasen.map((p) => p.name)).toEqual(["Einstieg", "Sicherung"]);
 	});
