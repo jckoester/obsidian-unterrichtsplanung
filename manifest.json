@@ -1,7 +1,7 @@
 {
 	"id": "unterrichtsplanung-sync",
 	"name": "Unterrichtsplanung-Sync",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"minAppVersion": "1.13.0",
 	"description": "Spiegelt die Unterrichtsplanung der GGD-KI-Plattform als Notizen in den Vault und schreibt definierte Felder zurück.",
 	"author": "Jan Köster",

@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-unterrichtsplanung-sync",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"description": "Obsidian-Plugin: Sync-Client für die Unterrichtsplanung der GGD-KI-Plattform",
 	"private": true,
 	"type": "module",

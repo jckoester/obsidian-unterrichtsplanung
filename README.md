@@ -6,6 +6,29 @@ Plattform. Ablösung von `Unterrichtsplanung.py`.
 
 Plan und Stand: `PKM/Projekte/Unterrichtsplanung-Sync/`.
 
+## Installation
+
+Über [BRAT](https://github.com/TfTHacker/obsidian42-brat): „Add Beta plugin" mit
+`jckoester/obsidian-unterrichtsplanung`. BRAT lädt `main.js`, `manifest.json` und
+`styles.css` aus dem neuesten Release.
+
+**Vorher** im Vault `.obsidian/plugins/unterrichtsplanung-sync/data.json` in die
+`.gitignore` aufnehmen: Dort legt Obsidian die Einstellungen ab, samt Zugangstoken im
+Klartext — ein Git-Plugin im Vault würde ihn sonst committen.
+
+Voraussetzungen: Obsidian 1.13, GGD-KI-Plattform ab 0.13.1 (Kompetenzen und Fachbegriffe
+der Stunde ab 0.17), ein Zugangstoken mit `planning:read`, `planning:write` und
+`context:read` (im Profil der Plattform). In den Einstellungen Basis-URL (mit `/api`),
+Token und Basisordner eintragen, dann die Gruppen holen (siehe unten). Der Probelauf ist
+anfangs an — erst prüfen, was der Sync vorhat, dann scharf schalten.
+
+## Release
+
+Version in `manifest.json` und `package.json` setzen, in `versions.json` eintragen,
+`RELEASE.md` schreiben, committen, dann einen Tag mit genau dieser Version (ohne „v")
+pushen. Die Action unter `.github/workflows/release.yml` baut, testet und legt das
+Release mit den drei Dateien an.
+
 ## Entwicklungsumgebung
 
 Entwickelt wird **nicht** im Produktivvault, sondern hier im Repo; der Testvault bindet

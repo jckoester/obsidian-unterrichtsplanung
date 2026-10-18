@@ -1,0 +1,30 @@
+# Ein Release je Tag: GitHub baut, testet und hängt die drei Dateien an, die Obsidian und
+# BRAT laden. `main.js` ist gitignored und gehört deshalb ans Release, nicht in den Baum.
+# Der Tag heißt wie die Version in `manifest.json`, ohne „v" — so sucht BRAT.
+name: Release
+
+on:
+  push:
+    tags: ["*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+      # `package-lock.json` ist gitignored (siehe CLAUDE.md, esbuild-Fallstrick) — also kein `npm ci`.
+      - run: npm install
+      - run: npm test
+      - run: npm run build
+      - name: Tag und manifest.json müssen übereinstimmen
+        run: test "$(node -p 'require("./manifest.json").version')" = "$GITHUB_REF_NAME"
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file RELEASE.md main.js manifest.json styles.css
