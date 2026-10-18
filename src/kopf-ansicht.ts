@@ -1,5 +1,20 @@
-import { Keymap, MarkdownRenderChild, TFile, type App, type HoverParent, type HoverPopover, type Plugin } from "obsidian";
-import { KOPF_SPRACHE, kopfDaten, type KopfDaten, type KopfNotiz, type Verweis } from "./kopf";
+import { Keymap, MarkdownRenderChild, TFile, setIcon, type App, type HoverParent, type HoverPopover, type Plugin } from "obsidian";
+import {
+	KOPF_SPRACHE,
+	kopfDaten,
+	plattformLinks,
+	type KopfDaten,
+	type KopfGruppe,
+	type KopfNotiz,
+	type PlattformLink,
+	type Verweis,
+} from "./kopf";
+
+/** Was der Kopf aus den Einstellungen braucht — gelesen bei jedem Zeichnen, nie gemerkt. */
+export interface KopfEinstellungen {
+	basisUrl: string;
+	gruppen: KopfGruppe[];
+}
 
 /**
  * Zeichnet den Kopf der Stundennotiz aus dem Codeblock `uplan-kopf`.
@@ -10,11 +25,18 @@ import { KOPF_SPRACHE, kopfDaten, type KopfDaten, type KopfNotiz, type Verweis }
  * der Vault brauchte den Schalter für Inline-JS. Ein Codeblock wird als Ganzes gezeichnet;
  * bearbeitet wird er nur über den Knopf `</>`.
  */
-export function registriereKopf(plugin: Plugin): void {
+export function registriereKopf(plugin: Plugin, einstellungen: () => KopfEinstellungen): void {
 	plugin.registerMarkdownCodeBlockProcessor(KOPF_SPRACHE, (_quelle, el, ctx) => {
-		ctx.addChild(new Kopf(plugin.app, el, ctx.sourcePath));
+		ctx.addChild(new Kopf(plugin.app, el, ctx.sourcePath, einstellungen));
 	});
 }
+
+const SYMBOLE: Record<PlattformLink["art"], string> = {
+	entwurf: "external-link",
+	// ✦ heißt auf der Plattform „Stundenassistent".
+	assistent: "sparkles",
+	planer: "calendar-days",
+};
 
 class Kopf extends MarkdownRenderChild implements HoverParent {
 	hoverPopover: HoverPopover | null = null;
@@ -24,6 +46,7 @@ class Kopf extends MarkdownRenderChild implements HoverParent {
 		private readonly app: App,
 		containerEl: HTMLElement,
 		private readonly pfad: string,
+		private readonly einstellungen: () => KopfEinstellungen,
 	) {
 		super(containerEl);
 	}
@@ -45,19 +68,37 @@ class Kopf extends MarkdownRenderChild implements HoverParent {
 		const geschwister = (datei.parent?.children ?? [])
 			.filter((f): f is TFile => f instanceof TFile && f.extension === "md")
 			.map(notiz);
-		const daten = kopfDaten(notiz(datei), geschwister);
+		const eigene = notiz(datei);
+		const daten = kopfDaten(eigene, geschwister);
+		const { basisUrl, gruppen } = this.einstellungen();
+		const links = plattformLinks(eigene.frontmatter, basisUrl, gruppen);
 
 		// `resolved` kommt nach jeder Änderung irgendwo im Vault; neu gezeichnet wird nur,
 		// wenn sich am Kopf etwas ändert.
-		const stand = JSON.stringify(daten);
+		const stand = JSON.stringify({ daten, links });
 		if (stand === this.zuletzt) return;
 		this.zuletzt = stand;
 		this.containerEl.empty();
-		this.baue(daten);
+		this.baue(daten, links);
 	}
 
-	private baue(daten: KopfDaten): void {
+	private baue(daten: KopfDaten, links: PlattformLink[]): void {
 		const kopf = this.containerEl.createDiv({ cls: "uplan-kopf" });
+		if (links.length > 0) {
+			const plattform = kopf.createDiv({ cls: "uplan-kopf-plattform" });
+			// In der Live-Vorschau öffnete ein Klick sonst den Quelltext des Blocks.
+			plattform.addEventListener("mousedown", (e) => e.stopPropagation());
+			for (const link of links) {
+				const knopf = plattform.createEl("button", {
+					cls: `uplan-kopf-${link.art} clickable-icon`,
+					attr: { "aria-label": link.titel },
+				});
+				setIcon(knopf, SYMBOLE[link.art]);
+				// Obsidian gibt eine fremde Adresse an den Standardbrowser weiter; dort ist man
+				// auf der Plattform angemeldet, in Obsidian nicht.
+				knopf.addEventListener("click", () => window.open(link.url));
+			}
+		}
 		if (daten.lehrauftrag) this.verweis(kopf.createDiv({ cls: "uplan-kopf-lehrauftrag" }), daten.lehrauftrag);
 		if (daten.datum) kopf.createDiv({ cls: "uplan-kopf-datum", text: daten.datum });
 

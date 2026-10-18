@@ -1,4 +1,5 @@
 import { datumDeutsch } from "./sync/notizen";
+import { kategorieZuUArt } from "./sync/status";
 
 /**
  * Was der Kopf einer Stundennotiz zeigt — rein, ohne Obsidian, damit es sich testen lässt.
@@ -64,6 +65,62 @@ export function kopfDaten(notiz: KopfNotiz, geschwister: KopfNotiz[]): KopfDaten
 		vorher: vorher ? kurz(vorher) : null,
 		nachher: nachher ? kurz(nachher) : null,
 	};
+}
+
+/** Ein Knopf im Kopf, der die Stunde auf der Plattform öffnet. */
+export interface PlattformLink {
+	art: "entwurf" | "assistent" | "planer";
+	url: string;
+	titel: string;
+}
+
+/** Was die Links von der eingerichteten Gruppe brauchen (`GruppenEinstellung`, P2). */
+export interface KopfGruppe {
+	groupId: number;
+	fachId: number | null;
+	fachSlug: string | null;
+}
+
+/**
+ * Die Wege von der Stundennotiz zur Plattform (Plan-Plattform-0.16, P3). Die Adressen baut die
+ * Plattform selbst genauso — `titelAktion` in `lib/mein_tag.js`, `neuerChatPfad` in
+ * `lib/chatziel.js`. Welcher Assistent antwortet, wählt dort die Chatseite: Mit `stunde_id`
+ * sucht sie einen mit der Fähigkeit `lesson_planning` (`einstiegsFaehigkeit`).
+ *
+ * - Mit Entwurf: die Entwurfsansicht und der Stundenassistent mit Bezug auf diese Stunde.
+ * - Ein Platzhalter nur die Jahresplanung. Die Startseite der Plattform legt an dieser Stelle
+ *   erst einen Entwurf an; ein Klick im Vault soll nicht schreiben, ohne dass es im
+ *   Ergebnisfenster des Syncs steht.
+ * - Kein Assistent für einen Entfall („eine Stunde zu planen, die nicht stattfindet, ist kein
+ *   Anliegen", `zeigtAssistent`) und gar nichts für eine archivierte Notiz — sie hat auf der
+ *   Plattform keinen Termin mehr.
+ */
+export function plattformLinks(
+	frontmatter: Record<string, unknown>,
+	basisUrl: string,
+	gruppen: KopfGruppe[],
+): PlattformLink[] {
+	// Die Basis-URL der API endet auf `/api`; davor liegt die Oberfläche.
+	const basis = basisUrl.trim().replace(/\/+$/, "").replace(/\/api$/, "");
+	const gruppe = gruppen.find((g) => g.groupId === frontmatter["uplan_group_id"]);
+	if (!basis || !gruppe || frontmatter["uplan_status"] === "archiviert") return [];
+
+	const planer = gruppe.fachSlug ? `${basis}/subjects/${gruppe.fachSlug}/groups/${gruppe.groupId}/planner` : null;
+	const knoten = frontmatter["uplan_node_id"];
+	if (typeof knoten !== "string" || !knoten) {
+		return planer ? [{ art: "planer", url: planer, titel: "In der Jahresplanung öffnen" }] : [];
+	}
+
+	const links: PlattformLink[] = [];
+	if (planer) links.push({ art: "entwurf", url: `${planer}/lessons/${knoten}`, titel: "Entwurf auf der Plattform öffnen" });
+	if (frontmatter["UArt"] !== kategorieZuUArt("ausfall")) {
+		const chat = new URLSearchParams();
+		if (gruppe.fachId !== null) chat.set("subject_id", String(gruppe.fachId));
+		chat.set("group_id", String(gruppe.groupId));
+		chat.set("stunde_id", knoten);
+		links.push({ art: "assistent", url: `${basis}/chat?${chat.toString()}`, titel: "Mit dem Stundenassistenten planen" });
+	}
+	return links;
 }
 
 function vergleiche(a: string, b: string): number {

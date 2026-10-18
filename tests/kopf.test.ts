@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { kopfDaten, verweis, type KopfNotiz } from "../src/kopf";
+import { kopfDaten, plattformLinks, verweis, type KopfGruppe, type KopfNotiz } from "../src/kopf";
 
 const ORDNER = "Bereiche/11 Unterricht/NwT 9/Unterrichtsstunden";
 
@@ -75,5 +75,58 @@ describe("verweis", () => {
 		expect(verweis("NwT 9")).toEqual({ ziel: null, text: "NwT 9" });
 		expect(verweis("")).toBeNull();
 		expect(verweis(null)).toBeNull();
+	});
+});
+
+describe("Links zur Plattform", () => {
+	const API = "http://localhost:5173/api";
+	const KNOTEN = "790fde89-c303-4141-b56d-fe69363deafe";
+	const gruppen: KopfGruppe[] = [{ groupId: 31, fachId: 16, fachSlug: "nwt" }];
+	const fm = (extra: Record<string, unknown> = {}) => ({
+		UArt: "Unterricht",
+		uplan_group_id: 31,
+		uplan_node_id: KNOTEN,
+		uplan_status: "aktiv",
+		...extra,
+	});
+
+	it("öffnet einen Entwurf in der Entwurfsansicht und beim Stundenassistenten, wie die Plattform selbst", () => {
+		expect(plattformLinks(fm(), API, gruppen)).toEqual([
+			{
+				art: "entwurf",
+				url: `http://localhost:5173/subjects/nwt/groups/31/planner/lessons/${KNOTEN}`,
+				titel: "Entwurf auf der Plattform öffnen",
+			},
+			{
+				art: "assistent",
+				url: `http://localhost:5173/chat?subject_id=16&group_id=31&stunde_id=${KNOTEN}`,
+				titel: "Mit dem Stundenassistenten planen",
+			},
+		]);
+	});
+
+	it("öffnet einen Platzhalter nur in der Jahresplanung — ein Klick legt keinen Entwurf an", () => {
+		expect(plattformLinks(fm({ uplan_node_id: null }), API, gruppen)).toEqual([
+			{ art: "planer", url: "http://localhost:5173/subjects/nwt/groups/31/planner", titel: "In der Jahresplanung öffnen" },
+		]);
+	});
+
+	it("bietet für einen Entfall keinen Assistenten an und für eine archivierte Notiz gar nichts", () => {
+		expect(plattformLinks(fm({ UArt: "Entfall" }), API, gruppen).map((l) => l.art)).toEqual(["entwurf"]);
+		expect(plattformLinks(fm({ uplan_status: "archiviert" }), API, gruppen)).toEqual([]);
+	});
+
+	it("kommt ohne Fach aus, soweit es geht, und ohne Basis-URL oder Gruppe gar nicht", () => {
+		const ohneFach = plattformLinks(fm(), `${API}/`, [{ groupId: 31, fachId: null, fachSlug: null }]);
+		expect(ohneFach).toEqual([
+			{
+				art: "assistent",
+				url: `http://localhost:5173/chat?group_id=31&stunde_id=${KNOTEN}`,
+				titel: "Mit dem Stundenassistenten planen",
+			},
+		]);
+		expect(plattformLinks(fm({ uplan_node_id: null }), API, [{ groupId: 31, fachId: null, fachSlug: null }])).toEqual([]);
+		expect(plattformLinks(fm(), "", gruppen)).toEqual([]);
+		expect(plattformLinks(fm({ uplan_group_id: 99 }), API, gruppen)).toEqual([]);
 	});
 });

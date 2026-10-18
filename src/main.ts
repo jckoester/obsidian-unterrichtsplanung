@@ -35,7 +35,7 @@ export default class UnterrichtsplanungSyncPlugin extends Plugin {
 		this.zeigeStatus(this.settings.letzterSync ? `Sync: ${this.settings.letzterSync}` : "Sync: nie");
 
 		this.addSettingTab(new UpsSettingTab(this.app, this));
-		registriereKopf(this);
+		registriereKopf(this, () => this.settings);
 		// Knopf und Zeitleiste öffnen denselben Editor.
 		const bearbeite: Bearbeite = (pfad, ziel) => void this.bearbeitePhase(pfad, ziel);
 		registriereZeitleiste(this, bearbeite);
