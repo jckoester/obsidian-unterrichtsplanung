@@ -310,6 +310,25 @@ describe("syncGruppe — Rückkanal", () => {
 		expect(zweit.plan.ops.every((o) => o.art === "unveraendert")).toBe(true);
 	});
 
+	it("behält Kompetenzen und Fachbegriffe nach dem Zurückschreiben — die Antwort nennt sie nicht", async () => {
+		const refs = [
+			{ node_id: "k1", typ: "ik", code: "3.1 (2)", titel: "Getriebe beschreiben", partiell: false },
+			{ node_id: "b1", typ: "concept", titel: "Übersetzung", content_type: "begriff" },
+		];
+		const mitRefs = [{ ...knoten[0], metadata: { ...knoten[0]!.metadata, refs } }];
+		const vault = new InMemoryVaultAdapter();
+		await syncGruppe(apiMit(stand, { "GET /context/nodes": mitRefs }), vault, zuordnung, false);
+		await vault.write(ZWEITE, (await vault.read(ZWEITE)).replace("2. Bearbeitung (80 min)", "2. Bearbeitung (75 min)"));
+
+		const { api: schreibend } = plattform({ "GET /context/nodes": mitRefs });
+		expect((await syncGruppe(schreibend, vault, zuordnung, false)).fehler).toEqual([]);
+		expect(await vault.read(ZWEITE)).toContain("Fachbegriffe:\n  - Übersetzung");
+
+		const danach = [{ ...mitRefs[0], updated_at: antwort.updated_at, metadata: { ...mitRefs[0]!.metadata, phasen: antwort.phasen } }];
+		const zweit = await syncGruppe(apiMit(stand, { "GET /context/nodes": danach }), vault, zuordnung, false);
+		expect(zweit.plan.ops.filter((o) => o.pfad === ZWEITE).map((o) => o.art)).toEqual(["unveraendert"]);
+	});
+
 	it("schreibt gegen eine zu alte Plattform nicht zurück", async () => {
 		const vault = await mitBearbeiteterStunde();
 		const { http, api: alt } = plattform({ "GET /health": { status: "ok", version: "0.12.1" } });

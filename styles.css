@@ -96,6 +96,41 @@
 }
 
 /*
+ * Kompetenzen und Fachbegriffe der Stunde unter dem Kopf (`uplan-bezuege`). Knapp gehalten —
+ * davor steht der Kopf, danach der Verlaufsplan, und der soll im Unterricht schnell zu
+ * erfassen sein. Ein langer Eintrag wird gekürzt, ganz steht er im Tooltip.
+ */
+.uplan-bezuege {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0.25em 0.6em;
+	align-items: baseline;
+	padding: 0.4em 0 0.1em;
+	font-size: var(--font-ui-small);
+}
+
+.uplan-bezuege-titel {
+	color: var(--text-muted);
+}
+
+.uplan-bezuege-liste {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.25em;
+	min-width: 0;
+}
+
+.uplan-bezug {
+	max-width: 18em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	padding: 0 0.45em;
+	border: 1px solid var(--background-modifier-border-hover);
+	border-radius: var(--radius-s);
+}
+
+/*
  * Zeitleiste unter „## Ablauf“ (Codeblock `uplan-zeit`, gezeichnet in
  * `src/zeitleiste-ansicht.ts`). Die Prio-Farben sind die der Plattform (`PRIO_COLORS` in
  * `lib/planner.js`), damit eine Phase auf beiden Seiten gleich aussieht.

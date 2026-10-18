@@ -38,6 +38,7 @@ import { ersetzeFrontmatter } from "./frontmatter";
 import type { Rueckkanal, SyncOp, SyncPlan } from "./plan";
 import { kategorieZuUArt, slotZuUStand } from "./status";
 import type { Wertelisten } from "./wertelisten";
+import type { Bezuege } from "./bezuege";
 
 /**
  * Die Materialisierung ist **rein**: Serverstand + vorhandene Notizen rein, Liste von
@@ -80,6 +81,8 @@ export interface Stundenknoten {
 	updated_at: string | null;
 	/** `false`: archiviert oder fremd, nur lesbar. `null`: nicht bekannt. */
 	darf_schreiben: boolean | null;
+	/** Kompetenzen und Fachbegriffe aus `refs`. Fehlt es, hat die Stunde keine. */
+	bezuege?: Bezuege;
 }
 
 export interface MaterializeInput {
@@ -133,8 +136,9 @@ const KNOTEN_FELD = "uplan_node_id";
  * 5: eigener Callout `uplan-stunde` statt `journal-header` (Snippet `uplan.css` in `vault/`).
  * 6: Kopf als Codeblock `uplan-kopf`, vom Plugin gezeichnet, statt Callout mit DataviewJS.
  * 7: Zeitleiste (`uplan-zeit`) unter `## Ablauf`, Knopfspalte `✎` rechts in der Tabelle.
+ * 8: `Kompetenzen` und `Fachbegriffe` im Frontmatter (die `refs` der Stunde).
  */
-const NOTIZFORMAT = 7;
+const NOTIZFORMAT = 8;
 
 /** Höchstens so viele Rückschreibungen je Lauf — jede legt einen Snapshot an, die Plattform hält 50 je Gruppe. */
 export const RUECKSCHREIBUNGEN_JE_LAUF = 10;
@@ -561,6 +565,8 @@ function serverNutzlast(slot: SlotRead, unit: UnitRead | undefined, stunde: Stun
 		stunde_node_id: slot.stunde_node_id,
 		ue_titel: unit?.title ?? null,
 		stundenziel: stundenziel(stunde),
+		kompetenzen: stunde?.bezuege?.kompetenzen ?? [],
+		fachbegriffe: stunde?.bezuege?.fachbegriffe ?? [],
 	};
 }
 
@@ -618,6 +624,9 @@ export function baueStundennotiz(
 		UStand: slotZuUStand(slot, stunde?.phasen),
 		Stundenziel: stundenziel(stunde),
 		Inhalte: slot.thema ?? null,
+		// Read-only wie `UArt`: Es gibt keinen Rückkanal für `refs` (`bezuege.ts`).
+		Kompetenzen: liste(stunde?.bezuege?.kompetenzen),
+		Fachbegriffe: liste(stunde?.bezuege?.fachbegriffe),
 		UStunden: slot.periods,
 		uplan_slot_id: slot.id,
 		uplan_node_id: slot.stunde_node_id,
@@ -661,6 +670,11 @@ export function baueStundennotiz(
 	return setzeHash(`${renderFrontmatter(felder)}\n${rumpf}`);
 }
 
+/** Eine leere Liste als leeres Feld — wie `UEinheit` ohne Einheit. */
+function liste(werte: string[] | undefined): string[] | null {
+	return werte && werte.length > 0 ? werte : null;
+}
+
 /**
  * Setzt `uplan_hash` auf den Hash des fertigen Textes — und zwar als Letztes.
  *
@@ -687,6 +701,8 @@ export const STUNDEN_FELDER = [
 	"UStand",
 	"Stundenziel",
 	"Inhalte",
+	"Kompetenzen",
+	"Fachbegriffe",
 	"UStunden",
 	"uplan_slot_id",
 	"uplan_node_id",

@@ -55,6 +55,22 @@ describe("Kopf der Stundennotiz", () => {
 		expect(d.einheit).toEqual({ ziel: "UE1 - Getriebe", text: "UE1 - Getriebe" });
 	});
 
+	it("liest Kompetenzen und Fachbegriffe aus dem Frontmatter, Kompetenzen kurz mit Nummer", () => {
+		const d = kopfDaten(
+			stunde("NwT 9 2026-09-15", {
+				Kompetenzen: ["3.1 (2): Getriebe beschreiben", "Modelle nutzen[…]"],
+				Fachbegriffe: "Übersetzung",
+			}),
+			[],
+		);
+		expect(d.kompetenzen).toEqual([
+			{ kurz: "3.1 (2)", lang: "3.1 (2): Getriebe beschreiben" },
+			{ kurz: "Modelle nutzen[…]", lang: "Modelle nutzen[…]" },
+		]);
+		expect(d.fachbegriffe).toEqual(["Übersetzung"]);
+		expect(daten("NwT 9 2026-09-22").kompetenzen).toEqual([]);
+	});
+
 	it("kommt ohne Einheit und ohne Datum aus", () => {
 		const d = kopfDaten(stunde("NwT 9 2026-09-15", { UEinheit: null, Datum: null }), []);
 		expect(d.einheit).toBeNull();

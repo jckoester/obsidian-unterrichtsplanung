@@ -1,4 +1,5 @@
 import { datumDeutsch } from "./sync/notizen";
+import { kompetenzAnzeige } from "./sync/bezuege";
 import { kategorieZuUArt } from "./sync/status";
 
 /**
@@ -32,6 +33,9 @@ export interface KopfDaten {
 	einheit: Verweis | null;
 	vorher: Verweis | null;
 	nachher: Verweis | null;
+	/** Aus `Kompetenzen` im Frontmatter: kurz die Nummer, lang der ganze Text. */
+	kompetenzen: { kurz: string; lang: string }[];
+	fachbegriffe: string[];
 }
 
 /**
@@ -64,7 +68,15 @@ export function kopfDaten(notiz: KopfNotiz, geschwister: KopfNotiz[]): KopfDaten
 		einheit: verweis(fm["UEinheit"]),
 		vorher: vorher ? kurz(vorher) : null,
 		nachher: nachher ? kurz(nachher) : null,
+		kompetenzen: texte(fm["Kompetenzen"]).map(kompetenzAnzeige),
+		fachbegriffe: texte(fm["Fachbegriffe"]),
 	};
+}
+
+/** Eine Liste aus dem Frontmatter — von Hand kann dort auch ein einzelner Wert stehen. */
+function texte(wert: unknown): string[] {
+	const liste = Array.isArray(wert) ? wert : [wert];
+	return liste.filter((w): w is string => typeof w === "string" && w.trim() !== "").map((w) => w.trim());
 }
 
 /** Ein Knopf im Kopf, der die Stunde auf der Plattform öffnet. */

@@ -9,6 +9,7 @@ import {
 	type Stundenknoten,
 	type VorhandeneNotiz,
 } from "./materialize";
+import { bezuegeAus } from "./bezuege";
 import { normalisierePhasen } from "./phasen";
 import { eintraegeAus, type Wertelisten } from "./wertelisten";
 import { planZusammenfassung, type SyncOp, type SyncPlan } from "./plan";
@@ -161,6 +162,7 @@ async function holeStundenknoten(
 			phasen: normalisierePhasen(k.metadata["phasen"]),
 			updated_at: k.updated_at,
 			darf_schreiben: k.darf_schreiben ?? null,
+			bezuege: bezuegeAus(k.metadata["refs"]),
 		});
 	}
 
@@ -175,6 +177,7 @@ async function holeStundenknoten(
 				phasen: normalisierePhasen(stunde.phasen),
 				updated_at: stunde.updated_at,
 				darf_schreiben: stunde.darf_bearbeiten,
+				bezuege: bezuegeAus(stunde.refs),
 			});
 		} catch (error) {
 			if (error instanceof HttpError && (error.status === 403 || error.status === 404)) continue;
@@ -269,6 +272,10 @@ async function schreibeZurueck(
 					phasen: normalisierePhasen(antwort.phasen),
 					updated_at: antwort.updated_at,
 					darf_schreiben: true,
+					// Die Antwort nennt keine `refs`, und geschickt werden sie nie — sie sind, wie
+					// sie gelesen wurden. Ohne sie fehlten die Felder im neuen Hash, und der
+					// nächste Lauf hielte die Notiz für vault-geändert.
+					bezuege: stunde?.bezuege,
 				};
 			}
 			const inhalt = await vault.read(op.pfad);

@@ -121,6 +121,29 @@ class Kopf extends MarkdownRenderChild implements HoverParent {
 			nav.createSpan({ text: "→" });
 		}
 		if (nav.childElementCount === 0) nav.remove();
+
+		this.bezuege(daten);
+	}
+
+	/**
+	 * Kompetenzen und Fachbegriffe der Stunde, unter dem Kopf (Plan-Plattform-0.16, P4). Knapp,
+	 * weil er vor dem Verlaufsplan steht, und der zählt im Unterricht: Kompetenzen nur mit
+	 * Nummer, der Wortlaut im Tooltip. Ohne beides kein Bereich, auch keine leere Zeile.
+	 */
+	private bezuege(daten: KopfDaten): void {
+		if (daten.kompetenzen.length === 0 && daten.fachbegriffe.length === 0) return;
+		const bereich = this.containerEl.createDiv({ cls: "uplan-bezuege" });
+		const zeile = (titel: string, eintraege: { kurz: string; lang: string }[]) => {
+			if (eintraege.length === 0) return;
+			bereich.createDiv({ cls: "uplan-bezuege-titel", text: titel });
+			const liste = bereich.createDiv({ cls: "uplan-bezuege-liste" });
+			for (const { kurz, lang } of eintraege) {
+				const el = liste.createSpan({ cls: "uplan-bezug", text: kurz });
+				if (lang !== kurz) el.setAttr("aria-label", lang);
+			}
+		};
+		zeile("Kompetenzen", daten.kompetenzen);
+		zeile("Fachbegriffe", daten.fachbegriffe.map((b) => ({ kurz: b, lang: b })));
 	}
 
 	/**

@@ -398,6 +398,26 @@ describe("Notizformat", () => {
 		expect(Object.keys(readFelder(splitNote(n.inhalt).frontmatter))).toEqual([...STUNDEN_FELDER]);
 	});
 
+	it("schreibt Kompetenzen und Fachbegriffe ins Frontmatter, ohne Einträge als leeres Feld", () => {
+		const bezuege = { kompetenzen: ["3.2.1 (1): Übersetzungen berechnen"], fachbegriffe: ["Zahnrad", "Übersetzung"] };
+		const mit = notiz(alsVorhanden(lauf([], [knotenB(SKIZZE, { bezuege })])), ZWEITE);
+		expect(readFelder(splitNote(mit.inhalt).frontmatter)).toMatchObject({
+			Kompetenzen: ["3.2.1 (1): Übersetzungen berechnen"],
+			Fachbegriffe: ["Zahnrad", "Übersetzung"],
+		});
+		const ohne = notiz(alsVorhanden(lauf([])), ZWEITE);
+		expect(ohne.inhalt).toMatch(/^Kompetenzen:$/m);
+	});
+
+	it("schreibt neue Begriffe der Plattform nach, und der Lauf danach ist ruhig", () => {
+		const vorhanden = alsVorhanden(lauf([]));
+		const knoten = [knotenB(SKIZZE, { bezuege: { kompetenzen: [], fachbegriffe: ["Zahnrad"] } })];
+		const op = opFuer(lauf(vorhanden, knoten), ZWEITE);
+		expect(op?.art).toBe("aktualisieren");
+		expect(op?.inhalt).toContain("Fachbegriffe:\n  - Zahnrad");
+		expect(opFuer(lauf(alsVorhanden(lauf(vorhanden, knoten)), knoten), ZWEITE)?.art).toBe("unveraendert");
+	});
+
 	it("streicht gestrichene Phasen durch", () => {
 		const gestrichen = [knotenB([{ id: "p1", name: "Einstieg", dauer_min: 5, status: "gestrichen" }])];
 		expect(notiz(alsVorhanden(lauf([], gestrichen)), ZWEITE).inhalt).toContain("1. ~~Einstieg~~ (5 min)");
